@@ -1,0 +1,51 @@
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: memora-backend
+
+    ports:
+      - "3000:3000"
+
+    env_file:
+      - .env
+
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    command: npm run start:dev
+
+  postgres:
+    image: postgres:17-alpine
+
+    container_name: memora-postgres
+
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: memora
+      POSTGRES_PASSWORD: change_this_password
+      POSTGRES_DB: memora_db
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memora -d memora_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
