@@ -1,0 +1,153 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CapsuleType {
+  PERSONAL
+  GROUP
+}
+
+enum CapsuleStatus {
+  DRAFT
+  COLLECTING
+  OPEN
+  CANCELLED
+}
+
+enum MemberRole {
+  OWNER
+  MEMBER
+}
+
+enum InvitationStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum AttachmentType {
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+}
+
+model User {
+  id            Int              @id @default(autoincrement())
+  name          String
+  email         String           @unique
+  passwordHash  String           @map("password_hash")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  ownedCapsules Capsule[]        @relation("CapsuleOwner")
+  memberships   CapsuleMember[]
+  invitations   InvitationLink[] @relation("InvitationCreator")
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model Capsule {
+  id          Int              @id @default(autoincrement())
+  ownerId     Int              @map("owner_id")
+  name        String
+  description String?
+  cover       String?
+  type        CapsuleType
+  opensAt     DateTime?        @map("opens_at")
+  status      CapsuleStatus
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  owner       User             @relation("CapsuleOwner", fields: [ownerId], references: [id])
+  members     CapsuleMember[]
+  invitations InvitationLink[]
+
+  @@index([ownerId])
+  @@index([status, opensAt])
+  @@map("capsules")
+}
+
+model InvitationLink {
+  id         Int              @id @default(autoincrement())
+  capsuleId  Int              @map("capsule_id")
+  createdBy  Int              @map("created_by")
+  tokenHash  String           @unique @map("token_hash")
+  status     InvitationStatus
+  expiresAt  DateTime         @map("expires_at")
+  maxUses    Int?             @map("max_uses")
+  usageCount Int              @default(0) @map("usage_count")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  capsule    Capsule          @relation(fields: [capsuleId], references: [id])
+  creator    User             @relation("InvitationCreator", fields: [createdBy], references: [id])
+
+  @@index([capsuleId])
+  @@index([createdBy])
+  @@index([status, expiresAt])
+  @@map("invitation_links")
+}
+
+model CapsuleMember {
+  id        Int            @id @default(autoincrement())
+  capsuleId Int            @map("capsule_id")
+  userId    Int            @map("user_id")
+  role      MemberRole
+  joinedAt  DateTime       @default(now()) @map("joined_at")
+  capsule   Capsule        @relation(fields: [capsuleId], references: [id])
+  user      User           @relation(fields: [userId], references: [id])
+  entries   CapsuleEntry[]
+
+  @@unique([capsuleId, userId])
+  @@index([capsuleId])
+  @@index([userId])
+  @@map("capsule_members")
+}
+
+model CapsuleEntry {
+  id              Int               @id @default(autoincrement())
+  capsuleMemberId Int               @map("capsule_member_id")
+  text            String?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  capsuleMember   CapsuleMember     @relation(fields: [capsuleMemberId], references: [id])
+  attachments     EntryAttachment[]
+
+  @@index([capsuleMemberId])
+  @@map("capsule_entries")
+}
+
+model EntryAttachment {
+  id        Int            @id @default(autoincrement())
+  entryId   Int            @map("entry_id")
+  type      AttachmentType
+  fileUrl   String         @map("file_url")
+  mimeType  String         @map("mime_type")
+  fileSize  Int            @map("file_size")
+  duration  Int?
+  createdAt DateTime       @default(now()) @map("created_at")
+  entry     CapsuleEntry   @relation(fields: [entryId], references: [id])
+
+  @@index([entryId])
+  @@map("entry_attachments")
+}
+
+model RefreshToken {
+  id                Int            @id @default(autoincrement())
+  userId            Int            @map("user_id")
+  tokenHash         String         @unique @map("token_hash")
+  replacedByTokenId Int?           @map("replaced_by_token_id")
+  expiresAt         DateTime       @map("expires_at")
+  revokedAt         DateTime?      @map("revoked_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  lastUsedAt        DateTime?      @map("last_used_at")
+  user              User           @relation(fields: [userId], references: [id])
+  replacedBy        RefreshToken?  @relation("TokenRotation", fields: [replacedByTokenId], references: [id])
+  replaces          RefreshToken[] @relation("TokenRotation")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([replacedByTokenId])
+  @@map("refresh_tokens")
+}

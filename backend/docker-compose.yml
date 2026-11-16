@@ -32,7 +32,7 @@ services:
 
     environment:
       POSTGRES_USER: memora
-      POSTGRES_PASSWORD: change_this_password
+      POSTGRES_PASSWORD: memora_pass
       POSTGRES_DB: memora_db
 
     ports:
