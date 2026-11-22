@@ -1,5 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/require-await, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unsafe-return */
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -39,11 +43,13 @@ describe('AuthService', () => {
     username: 'memora_user',
     name: 'memora_user',
     email: 'user@memora.test',
+    isEmailVerified: true,
   };
 
   let prisma: any;
   let jwtService: jest.Mocked<JwtService>;
   let configService: jest.Mocked<ConfigService>;
+  let emailService: { sendEmailVerification: jest.Mock; sendPasswordReset: jest.Mock };
   let service: AuthService;
 
   beforeEach(() => {
@@ -51,12 +57,23 @@ describe('AuthService', () => {
       user: {
         create: jest.fn(),
         findUnique: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
       },
       refreshToken: {
         create: jest.fn(),
         updateMany: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
+      },
+      emailVerificationToken: {
+        findUnique: jest.fn(),
+        updateMany: jest.fn(),
+        create: jest.fn(),
+      },
+      passwordResetToken: {
+        findUnique: jest.fn(),
+        updateMany: jest.fn(),
+        create: jest.fn(),
       },
       $transaction: jest.fn(),
     };
@@ -90,11 +107,36 @@ describe('AuthService', () => {
       }),
     } as any;
 
-    service = new AuthService(prisma, jwtService, configService);
+    emailService = {
+      sendEmailVerification: jest.fn().mockResolvedValue(undefined),
+      sendPasswordReset: jest.fn().mockResolvedValue(undefined),
+    };
+
+    service = new AuthService(
+      prisma,
+      jwtService,
+      configService,
+      emailService as any,
+    );
   });
 
   it('registers a user and does not expose the password hash', async () => {
     (bcrypt.hash as jest.Mock).mockResolvedValue('password-hash');
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        user: {
+          create: jest.fn().mockResolvedValue({
+            ...safeUser,
+            isEmailVerified: false,
+            passwordHash: 'password-hash',
+          }),
+        },
+        emailVerificationToken: {
+          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+          create: jest.fn().mockResolvedValue({ id: 'verification-token-id' }),
+        },
+      }),
+    );
     prisma.user.create.mockResolvedValue({
       ...safeUser,
       passwordHash: 'password-hash',
@@ -106,14 +148,7 @@ describe('AuthService', () => {
       password: 'password123',
     });
 
-    expect(prisma.user.create).toHaveBeenCalledWith({
-      data: {
-        username: 'memora_user',
-        name: 'memora_user',
-        email: 'user@memora.test',
-        passwordHash: 'password-hash',
-      },
-    });
+    expect(emailService.sendEmailVerification).toHaveBeenCalled();
     expect(result.user).not.toHaveProperty('passwordHash');
   });
 
@@ -124,7 +159,17 @@ describe('AuthService', () => {
       'Unique constraint failed',
       { code: 'P2002' },
     );
-    prisma.user.create.mockRejectedValue(error);
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        user: {
+          create: jest.fn().mockRejectedValue(error),
+        },
+        emailVerificationToken: {
+          updateMany: jest.fn(),
+          create: jest.fn(),
+        },
+      }),
+    );
 
     await expect(
       service.register({
@@ -307,5 +352,116 @@ describe('AuthService', () => {
         where: { userId, revokedAt: null },
       }),
     );
+  });
+
+  it('verifies a valid email token and rejects reuse', async () => {
+    const token = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const stored = {
+      id: 'verification-token-id',
+      userId,
+      usedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    prisma.emailVerificationToken.findUnique.mockResolvedValue(stored);
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        emailVerificationToken: {
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+        user: { update: jest.fn().mockResolvedValue(safeUser) },
+      }),
+    );
+
+    await expect(service.verifyEmail({ token })).resolves.toEqual({
+      message: 'Email verified successfully',
+    });
+
+    prisma.emailVerificationToken.findUnique.mockResolvedValue({
+      ...stored,
+      usedAt: new Date(),
+    });
+    await expect(service.verifyEmail({ token })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('rejects invalid and expired email verification tokens', async () => {
+    const token = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    prisma.emailVerificationToken.findUnique.mockResolvedValue(null);
+    await expect(service.verifyEmail({ token })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    prisma.emailVerificationToken.findUnique.mockResolvedValue({
+      id: 'verification-token-id',
+      userId,
+      usedAt: null,
+      expiresAt: new Date(Date.now() - 1000),
+    });
+    await expect(service.verifyEmail({ token })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('resets a password and revokes refresh tokens', async () => {
+    const token = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    prisma.passwordResetToken.findUnique.mockResolvedValue({
+      id: 'reset-token-id',
+      userId,
+      usedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    (bcrypt.hash as jest.Mock).mockResolvedValue('new-password-hash');
+    const refreshUpdate = jest.fn().mockResolvedValue({ count: 2 });
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        passwordResetToken: {
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+        user: { update: jest.fn().mockResolvedValue(safeUser) },
+        refreshToken: { updateMany: refreshUpdate },
+      }),
+    );
+
+    await expect(
+      service.resetPassword({ token, password: 'new-password123' }),
+    ).resolves.toEqual({ message: 'Password reset successfully' });
+    expect(refreshUpdate).toHaveBeenCalled();
+  });
+
+  it('returns generic forgot-password responses', async () => {
+    prisma.user.findUnique.mockResolvedValue(null);
+    await expect(
+      service.forgotPassword({ email: 'unknown@memora.test' }),
+    ).resolves.toEqual({
+      message: 'If the account exists, a password reset email has been sent',
+    });
+  });
+
+  it('rejects invalid, expired, and reused password reset tokens', async () => {
+    const token = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    prisma.passwordResetToken.findUnique.mockResolvedValue(null);
+    await expect(
+      service.resetPassword({ token, password: 'new-password123' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    prisma.passwordResetToken.findUnique.mockResolvedValue({
+      id: 'expired-token',
+      userId,
+      usedAt: null,
+      expiresAt: new Date(Date.now() - 1000),
+    });
+    await expect(
+      service.resetPassword({ token, password: 'new-password123' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    prisma.passwordResetToken.findUnique.mockResolvedValue({
+      id: 'reused-token',
+      userId,
+      usedAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await expect(
+      service.resetPassword({ token, password: 'new-password123' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

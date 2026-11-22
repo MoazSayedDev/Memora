@@ -38,9 +38,14 @@ export class AuthService {
 
   async register(dto: RegisterDto): Promise<{ user: SafeUser }> {
     // check if username or email already exists
-    const existingUser = await this.prisma.user.findUnique({
-      where: { username: dto.username },
-    });
+    const existingUser = await this.prisma.user.findFirst({
+  where: {
+    OR: [
+      { username: dto.username },
+      { email: dto.email.toLowerCase() },
+    ],
+  },
+});
 
     if (existingUser) {
       throw new ConflictException('Username or email already exists');
@@ -266,6 +271,135 @@ export class AuthService {
     return this.toSafeUser(user);
   }
 
+  async verifyEmail(dto: VerifyEmailDto): Promise<{ message: string }> {
+    const tokenHash = this.hashToken(dto.token);
+    const now = new Date();
+    const token = await this.prisma.emailVerificationToken.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!token || token.usedAt || token.expiresAt <= now) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.emailVerificationToken.updateMany({
+        where: {
+          id: token.id,
+          usedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { usedAt: now },
+      });
+      if (consumed.count !== 1) {
+        throw new BadRequestException('Invalid or expired verification token');
+      }
+      await tx.user.update({
+        where: { id: token.userId },
+        data: { isEmailVerified: true },
+      });
+      await tx.emailVerificationToken.updateMany({
+        where: { userId: token.userId, usedAt: null },
+        data: { usedAt: now },
+      });
+    });
+
+    return { message: 'Email verified successfully' };
+  }
+
+  async resendVerificationEmail(
+    dto: ResendVerificationDto,
+  ): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase() },
+    });
+    if (user && !user.isEmailVerified) {
+      const rawToken = randomBytes(32).toString('hex');
+      await this.prisma.$transaction(async (tx) => {
+        await tx.emailVerificationToken.updateMany({
+          where: { userId: user.id, usedAt: null },
+          data: { usedAt: new Date() },
+        });
+        await tx.emailVerificationToken.create({
+          data: {
+            userId: user.id,
+            tokenHash: this.hashToken(rawToken),
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+          },
+        });
+      });
+      await this.emailService.sendEmailVerification(user.email, rawToken);
+    }
+    return { message: 'If the account exists, a verification email has been sent' };
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase() },
+    });
+    if (user) {
+      const rawToken = randomBytes(32).toString('hex');
+      await this.prisma.$transaction(async (tx) => {
+        await tx.passwordResetToken.updateMany({
+          where: { userId: user.id, usedAt: null },
+          data: { usedAt: new Date() },
+        });
+        await tx.passwordResetToken.create({
+          data: {
+            userId: user.id,
+            tokenHash: this.hashToken(rawToken),
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+          },
+        });
+      });
+      await this.emailService.sendPasswordReset(user.email, rawToken);
+    }
+    return { message: 'If the account exists, a password reset email has been sent' };
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
+    const tokenHash = this.hashToken(dto.token);
+    const now = new Date();
+    const token = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+    });
+    if (!token || token.usedAt || token.expiresAt <= now) {
+      throw new BadRequestException('Invalid or expired password reset token');
+    }
+
+    const passwordHash = await bcrypt.hash(
+      dto.password,
+      this.getBcryptRounds(),
+    );
+    await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.passwordResetToken.updateMany({
+        where: {
+          id: token.id,
+          usedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { usedAt: now },
+      });
+      if (consumed.count !== 1) {
+        throw new BadRequestException('Invalid or expired password reset token');
+      }
+      await tx.user.update({
+        where: { id: token.userId },
+        data: { passwordHash },
+      });
+      await tx.passwordResetToken.updateMany({
+        where: { userId: token.userId, usedAt: null },
+        data: { usedAt: now },
+      });
+      await tx.refreshToken.updateMany({
+        where: { userId: token.userId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+    });
+
+    return { message: 'Password reset successfully' };
+  }
+
   async issueRefreshToken(userId: string): Promise<string> {
     const rawToken = this.createRawRefreshToken(userId);
     const tokenHash = this.hashRefreshToken(rawToken);
@@ -345,6 +479,10 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
   private getRefreshCookieNameInternal(): string {
     return this.configService.get<string>(
       'REFRESH_TOKEN_COOKIE_NAME',
@@ -402,12 +540,14 @@ export class AuthService {
     username: string | null;
     name: string;
     email: string;
+    isEmailVerified: boolean;
   }): SafeUser {
     return {
       id: user.id,
       username: user.username,
       name: user.name,
       email: user.email,
+      isEmailVerified: user.isEmailVerified,
     };
   }
 }

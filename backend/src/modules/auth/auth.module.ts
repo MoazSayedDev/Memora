@@ -7,6 +7,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { EmailModule } from '../email/email.module';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       }),
     }),
     PrismaModule,
+    EmailModule,
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 10 }]),
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, JwtAuthGuard],

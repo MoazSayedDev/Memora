@@ -17,6 +17,7 @@ export class RegisterDto {
   })
   username: string;
 
+  @ApiProperty({ example: 'user@memora.test', maxLength: 254 })
   @IsEmail()
   @MaxLength(254)
   email: string;
@@ -26,4 +27,3 @@ export class RegisterDto {
   @MaxLength(72)
   password: string;
 }
-  @ApiProperty({ example: 'user@memora.test', maxLength: 254 })
