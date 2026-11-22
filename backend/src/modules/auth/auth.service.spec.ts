@@ -437,6 +437,16 @@ describe('AuthService', () => {
     });
   });
 
+  it('returns a generic resend-verification response for unknown users', async () => {
+    prisma.user.findUnique.mockResolvedValue(null);
+    await expect(
+      service.resendVerificationEmail({ email: 'unknown@memora.test' }),
+    ).resolves.toEqual({
+      message:
+        'If the account exists, a verification email has been sent',
+    });
+  });
+
   it('rejects invalid, expired, and reused password reset tokens', async () => {
     const token = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
     prisma.passwordResetToken.findUnique.mockResolvedValue(null);

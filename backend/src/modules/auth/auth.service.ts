@@ -37,20 +37,18 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto): Promise<{ user: SafeUser }> {
-    // check if username or email already exists
     const existingUser = await this.prisma.user.findFirst({
-  where: {
-    OR: [
-      { username: dto.username },
-      { email: dto.email.toLowerCase() },
-    ],
-  },
-});
+      where: {
+        OR: [
+          { username: dto.username },
+          { email: dto.email.toLowerCase() },
+        ],
+      },
+    });
 
     if (existingUser) {
       throw new ConflictException('Username or email already exists');
     }
-
 
     const passwordHash = await bcrypt.hash(
       dto.password,

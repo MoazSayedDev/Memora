@@ -46,6 +46,13 @@ describe('EmailService', () => {
     await expect(service.verifyConnection()).resolves.toBe(true);
   });
 
+  it('handles SMTP connection verification failures', async () => {
+    mockVerify.mockRejectedValue(new Error('SMTP unavailable'));
+    await expect(service.verifyConnection()).rejects.toBeInstanceOf(
+      InternalServerErrorException,
+    );
+  });
+
   it('sends verification and password reset emails', async () => {
     mockSendMail.mockResolvedValue({ messageId: 'test-message' });
     await expect(
