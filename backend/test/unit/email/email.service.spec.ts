@@ -1,6 +1,6 @@
 import { InternalServerErrorException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
-import { EmailService } from './email.service';
+import { EmailService } from '../../../src/modules/email/email.service';
 
 jest.mock('@nestjs/config', () => ({
   ConfigService: class {},

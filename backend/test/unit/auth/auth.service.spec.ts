@@ -7,7 +7,7 @@ import {
 import type { ConfigService } from '@nestjs/config';
 import type { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { AuthService } from './auth.service';
+import { AuthService } from '../../../src/modules/auth/auth.service';
 
 jest.mock('@nestjs/config', () => ({
   ConfigService: class {},
@@ -15,7 +15,7 @@ jest.mock('@nestjs/config', () => ({
 jest.mock('@nestjs/jwt', () => ({
   JwtService: class {},
 }));
-jest.mock('../../prisma/prisma.service', () => ({
+jest.mock('../../../src/prisma/prisma.service', () => ({
   PrismaService: class {},
 }));
 jest.mock('@prisma/client', () => ({
