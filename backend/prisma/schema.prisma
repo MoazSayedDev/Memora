@@ -36,23 +36,27 @@ enum AttachmentType {
 }
 
 model User {
-  id            Int              @id @default(autoincrement())
+  id            String           @id @default(uuid())
   name          String
+  username      String?          @unique
   email         String           @unique
   passwordHash  String           @map("password_hash")
+  isEmailVerified Boolean        @default(false) @map("is_email_verified")
   createdAt     DateTime         @default(now()) @map("created_at")
   updatedAt     DateTime         @updatedAt @map("updated_at")
   ownedCapsules Capsule[]        @relation("CapsuleOwner")
   memberships   CapsuleMember[]
   invitations   InvitationLink[] @relation("InvitationCreator")
   refreshTokens RefreshToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
 }
 
 model Capsule {
-  id          Int              @id @default(autoincrement())
-  ownerId     Int              @map("owner_id")
+  id          String           @id @default(uuid())
+  ownerId     String           @map("owner_id")
   name        String
   description String?
   cover       String?
@@ -71,9 +75,9 @@ model Capsule {
 }
 
 model InvitationLink {
-  id         Int              @id @default(autoincrement())
-  capsuleId  Int              @map("capsule_id")
-  createdBy  Int              @map("created_by")
+  id         String           @id @default(uuid())
+  capsuleId  String           @map("capsule_id")
+  createdBy  String           @map("created_by")
   tokenHash  String           @unique @map("token_hash")
   status     InvitationStatus
   expiresAt  DateTime         @map("expires_at")
@@ -90,9 +94,9 @@ model InvitationLink {
 }
 
 model CapsuleMember {
-  id        Int            @id @default(autoincrement())
-  capsuleId Int            @map("capsule_id")
-  userId    Int            @map("user_id")
+  id        String         @id @default(uuid())
+  capsuleId String         @map("capsule_id")
+  userId    String         @map("user_id")
   role      MemberRole
   joinedAt  DateTime       @default(now()) @map("joined_at")
   capsule   Capsule        @relation(fields: [capsuleId], references: [id])
@@ -106,8 +110,8 @@ model CapsuleMember {
 }
 
 model CapsuleEntry {
-  id              Int               @id @default(autoincrement())
-  capsuleMemberId Int               @map("capsule_member_id")
+  id              String            @id @default(uuid())
+  capsuleMemberId String            @map("capsule_member_id")
   text            String?
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
@@ -119,8 +123,8 @@ model CapsuleEntry {
 }
 
 model EntryAttachment {
-  id        Int            @id @default(autoincrement())
-  entryId   Int            @map("entry_id")
+  id        String         @id @default(uuid())
+  entryId   String         @map("entry_id")
   type      AttachmentType
   fileUrl   String         @map("file_url")
   mimeType  String         @map("mime_type")
@@ -134,10 +138,10 @@ model EntryAttachment {
 }
 
 model RefreshToken {
-  id                Int            @id @default(autoincrement())
-  userId            Int            @map("user_id")
+  id                String         @id @default(uuid())
+  userId            String         @map("user_id")
   tokenHash         String         @unique @map("token_hash")
-  replacedByTokenId Int?           @map("replaced_by_token_id")
+  replacedByTokenId String?        @map("replaced_by_token_id")
   expiresAt         DateTime       @map("expires_at")
   revokedAt         DateTime?      @map("revoked_at")
   createdAt         DateTime       @default(now()) @map("created_at")
@@ -150,4 +154,32 @@ model RefreshToken {
   @@index([expiresAt])
   @@index([replacedByTokenId])
   @@map("refresh_tokens")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
