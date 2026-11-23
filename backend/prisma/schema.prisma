@@ -36,7 +36,7 @@ enum AttachmentType {
 }
 
 model User {
-  id            String           @id @default(uuid())
+  id            String           @id @default(uuid()) @db.Uuid
   name          String
   username      String?          @unique
   email         String           @unique
@@ -55,8 +55,8 @@ model User {
 }
 
 model Capsule {
-  id          String           @id @default(uuid())
-  ownerId     String           @map("owner_id")
+  id          String           @id @default(uuid()) @db.Uuid
+  ownerId     String           @map("owner_id") @db.Uuid
   name        String
   description String?
   cover       String?
@@ -75,9 +75,9 @@ model Capsule {
 }
 
 model InvitationLink {
-  id         String           @id @default(uuid())
-  capsuleId  String           @map("capsule_id")
-  createdBy  String           @map("created_by")
+  id         String           @id @default(uuid()) @db.Uuid
+  capsuleId  String           @map("capsule_id") @db.Uuid
+  createdBy  String           @map("created_by") @db.Uuid
   tokenHash  String           @unique @map("token_hash")
   status     InvitationStatus
   expiresAt  DateTime         @map("expires_at")
@@ -94,9 +94,9 @@ model InvitationLink {
 }
 
 model CapsuleMember {
-  id        String         @id @default(uuid())
-  capsuleId String         @map("capsule_id")
-  userId    String         @map("user_id")
+  id        String         @id @default(uuid()) @db.Uuid
+  capsuleId String         @map("capsule_id") @db.Uuid
+  userId    String         @map("user_id") @db.Uuid
   role      MemberRole
   joinedAt  DateTime       @default(now()) @map("joined_at")
   capsule   Capsule        @relation(fields: [capsuleId], references: [id])
@@ -110,8 +110,8 @@ model CapsuleMember {
 }
 
 model CapsuleEntry {
-  id              String            @id @default(uuid())
-  capsuleMemberId String            @map("capsule_member_id")
+  id              String            @id @default(uuid()) @db.Uuid
+  capsuleMemberId String            @map("capsule_member_id") @db.Uuid
   text            String?
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
@@ -123,8 +123,8 @@ model CapsuleEntry {
 }
 
 model EntryAttachment {
-  id        String         @id @default(uuid())
-  entryId   String         @map("entry_id")
+  id        String         @id @default(uuid()) @db.Uuid
+  entryId   String         @map("entry_id") @db.Uuid
   type      AttachmentType
   fileUrl   String         @map("file_url")
   mimeType  String         @map("mime_type")
@@ -138,10 +138,10 @@ model EntryAttachment {
 }
 
 model RefreshToken {
-  id                String         @id @default(uuid())
-  userId            String         @map("user_id")
+  id                String         @id @default(uuid()) @db.Uuid
+  userId            String         @map("user_id") @db.Uuid
   tokenHash         String         @unique @map("token_hash")
-  replacedByTokenId String?        @map("replaced_by_token_id")
+  replacedByTokenId String?        @map("replaced_by_token_id") @db.Uuid
   expiresAt         DateTime       @map("expires_at")
   revokedAt         DateTime?      @map("revoked_at")
   createdAt         DateTime       @default(now()) @map("created_at")
