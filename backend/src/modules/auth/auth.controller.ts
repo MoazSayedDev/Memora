@@ -13,15 +13,15 @@ import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-
-type AuthenticatedRequest = Request & { user: { id: string } };
+import { Public } from '../../common/decorators/public.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 
 @Controller('auth')
 @ApiTags('Authentication')
@@ -29,12 +29,14 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
+  @Public()
   @ApiOperation({ summary: 'Register and send an email verification link' })
   async register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
   }
 
   @Post('verify-email')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify an email address with a one-time token' })
   async verifyEmail(@Body() dto: VerifyEmailDto) {
@@ -42,6 +44,7 @@ export class AuthController {
   }
 
   @Post('resend-verification')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 3, ttl: 600000 } })
@@ -51,6 +54,7 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 3, ttl: 600000 } })
@@ -60,6 +64,7 @@ export class AuthController {
   }
 
   @Post('reset-password')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset a password with a one-time token' })
   async resetPassword(@Body() dto: ResetPasswordDto) {
@@ -67,6 +72,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Public()
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() dto: LoginDto,
@@ -83,6 +89,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Public()
   @HttpCode(HttpStatus.OK)
   async refresh(
     @Req() request: Request,
@@ -113,13 +120,12 @@ export class AuthController {
   }
 
   @Post('logout-all')
-  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async logoutAll(
-    @Req() request: AuthenticatedRequest,
+    @CurrentUser() user: AuthenticatedUser,
     @Res({ passthrough: true }) response: Response,
   ) {
-    await this.authService.logoutAll(request.user.id);
+    await this.authService.logoutAll(user.id);
     response.clearCookie(
       this.authService.getRefreshCookieName(),
       this.authService.clearRefreshTokenCookieOptions(),
@@ -128,8 +134,7 @@ export class AuthController {
   }
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
-  async me(@Req() request: AuthenticatedRequest) {
-    return this.authService.getAuthenticatedUser(request.user.id);
+  async me(@CurrentUser() user: AuthenticatedUser) {
+    return this.authService.getAuthenticatedUser(user.id);
   }
 }

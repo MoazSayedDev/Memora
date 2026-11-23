@@ -31,5 +31,8 @@ describe('JwtStrategy', () => {
     expect(() =>
       strategy.validate({ sub: userId, type: 'refresh' as any }),
     ).toThrow(UnauthorizedException);
+    expect(() =>
+      strategy.validate({ sub: 'spoofed-user-id', type: 'access' }),
+    ).toThrow(UnauthorizedException);
   });
 });
