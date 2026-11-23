@@ -20,19 +20,59 @@ jest.mock('passport-jwt', () => ({
 }));
 
 describe('JwtStrategy', () => {
-  it('uses the authenticated JWT subject and rejects invalid payload types', () => {
+  it('uses an active refresh session and rejects invalid payload types', async () => {
     const configService = {
       getOrThrow: jest.fn().mockReturnValue('access-secret'),
     } as unknown as ConfigService;
-    const strategy = new JwtStrategy(configService);
+    const prisma = {
+      refreshToken: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: '550e8400-e29b-41d4-a716-446655440000',
+          revokedAt: null,
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      },
+    };
+    const strategy = new JwtStrategy(configService, prisma as any);
 
     const userId = '550e8400-e29b-41d4-a716-446655440000';
-    expect(strategy.validate({ sub: userId, type: 'access' })).toEqual({ id: userId });
-    expect(() =>
-      strategy.validate({ sub: userId, type: 'refresh' as any }),
-    ).toThrow(UnauthorizedException);
-    expect(() =>
-      strategy.validate({ sub: 'spoofed-user-id', type: 'access' }),
-    ).toThrow(UnauthorizedException);
+    const sessionId = '550e8400-e29b-41d4-a716-446655440001';
+    await expect(
+      strategy.validate({ sub: userId, sid: sessionId, type: 'access' }),
+    ).resolves.toEqual({ id: userId });
+    await expect(
+      strategy.validate({ sub: userId, sid: sessionId, type: 'refresh' as any }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(
+      strategy.validate({
+        sub: 'spoofed-user-id',
+        sid: sessionId,
+        type: 'access',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('rejects an access token whose session was revoked', async () => {
+    const configService = {
+      getOrThrow: jest.fn().mockReturnValue('access-secret'),
+    } as unknown as ConfigService;
+    const prisma = {
+      refreshToken: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: '550e8400-e29b-41d4-a716-446655440000',
+          revokedAt: new Date(),
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      },
+    };
+    const strategy = new JwtStrategy(configService, prisma as any);
+
+    await expect(
+      strategy.validate({
+        sub: '550e8400-e29b-41d4-a716-446655440000',
+        sid: '550e8400-e29b-41d4-a716-446655440001',
+        type: 'access',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

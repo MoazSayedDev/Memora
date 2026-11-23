@@ -342,6 +342,29 @@ describe('AuthService', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('revokes the access session on logout even without a refresh cookie', async () => {
+    jwtService.verifyAsync.mockResolvedValue({
+      sub: userId,
+      sid: refreshTokenId,
+      type: 'access',
+    } as any);
+    prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.logout({
+      cookies: {},
+      headers: {
+        origin: 'http://localhost:3000',
+        authorization: 'Bearer access-token',
+      },
+    } as any);
+
+    expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: refreshTokenId, userId, revokedAt: null },
+      }),
+    );
+  });
+
   it('revokes all active refresh tokens for logout-all', async () => {
     prisma.refreshToken.updateMany.mockResolvedValue({ count: 3 });
 

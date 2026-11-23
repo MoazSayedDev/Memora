@@ -121,12 +121,15 @@ export class AuthService {
       throw new UnauthorizedException('Email address is not verified');
     }
 
-    const accessToken = await this.createAccessToken(user.id);
-    const refreshToken = await this.issueRefreshToken(user.id);
+    const refreshSession = await this.issueRefreshToken(user.id);
+    const accessToken = await this.createAccessToken(
+      user.id,
+      refreshSession.sessionId,
+    );
 
     return {
       accessToken,
-      refreshToken,
+      refreshToken: refreshSession.rawToken,
       user: this.toSafeUser(user),
     };
   }
@@ -219,6 +222,7 @@ export class AuthService {
       return {
         status: 'ok' as const,
         user: existing.user,
+        sessionId: replacement.id,
       };
     });
 
@@ -226,7 +230,10 @@ export class AuthService {
       throw new UnauthorizedException('Refresh session is invalid');
     }
 
-    const accessToken = await this.createAccessToken(result.user.id);
+    const accessToken = await this.createAccessToken(
+      result.user.id,
+      result.sessionId,
+    );
     return {
       accessToken,
       refreshToken: newRawRefreshToken,
@@ -236,6 +243,37 @@ export class AuthService {
 
   async logout(request: Request): Promise<void> {
     this.validateCookieOrigin(request);
+
+    const authorization = request.headers.authorization;
+    const accessToken =
+      typeof authorization === 'string' &&
+      authorization.toLowerCase().startsWith('bearer ')
+        ? authorization.slice(7).trim()
+        : undefined;
+
+    if (accessToken) {
+      try {
+        const payload = await this.jwtService.verifyAsync<{
+          sub: string;
+          sid: string;
+          type: 'access';
+        }>(accessToken, {
+          secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        });
+        if (
+          payload.type === 'access' &&
+          typeof payload.sub === 'string' &&
+          typeof payload.sid === 'string'
+        ) {
+          await this.prisma.refreshToken.updateMany({
+            where: { id: payload.sid, userId: payload.sub, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+        }
+      } catch {
+        // An invalid bearer token does not prevent logout from completing.
+      }
+    }
 
     const cookieName = this.getRefreshCookieName();
     const rawToken = (
@@ -398,11 +436,13 @@ export class AuthService {
     return { message: 'Password reset successfully' };
   }
 
-  async issueRefreshToken(userId: string): Promise<string> {
+  async issueRefreshToken(
+    userId: string,
+  ): Promise<{ rawToken: string; sessionId: string }> {
     const rawToken = this.createRawRefreshToken(userId);
     const tokenHash = this.hashRefreshToken(rawToken);
 
-    await this.prisma.refreshToken.create({
+    const session = await this.prisma.refreshToken.create({
       data: {
         userId,
         tokenHash,
@@ -410,12 +450,12 @@ export class AuthService {
       },
     });
 
-    return rawToken;
+    return { rawToken, sessionId: session.id };
   }
 
-  createAccessToken(userId: string): Promise<string> {
+  createAccessToken(userId: string, sessionId: string): Promise<string> {
     return this.jwtService.signAsync(
-      { sub: userId, type: 'access' },
+      { sub: userId, sid: sessionId, type: 'access' },
       {
         secret: this.configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
         expiresIn: this.configService.getOrThrow<string>(
