@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
+import { CapsulesModule } from './modules/capsules/capsules.module';
 
 function validateEnvironment(environment: Record<string, unknown>) {
   const required = [
@@ -36,6 +37,7 @@ function validateEnvironment(environment: Record<string, unknown>) {
     PrismaModule,
     AuthModule,
     UsersModule,
+    CapsulesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
