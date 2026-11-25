@@ -7,10 +7,14 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
+import { InvitationStatus } from '@prisma/client';
 import {
   ApiBearerAuth,
   ApiOperation,
+  ApiParam,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -19,8 +23,10 @@ import { Public } from '../../common/decorators/public.decorator';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { InvitationCreatedResponseDto } from './dto/invitation-created-response.dto';
 import { InvitationJoinResponseDto } from './dto/invitation-join-response.dto';
+import { InvitationListResponseDto } from './dto/invitation-list-response.dto';
 import { InvitationPreviewResponseDto } from './dto/invitation-preview-response.dto';
 import { InvitationRevokedResponseDto } from './dto/invitation-revoked-response.dto';
+import { ListInvitationsDto } from './dto/list-invitations.dto';
 import { InvitationsService } from './invitations.service';
 
 @ApiTags('Invitations')
@@ -54,6 +60,36 @@ export class InvitationsController {
     @Param('capsuleId', ParseUUIDPipe) capsuleId: string,
   ) {
     return this.invitationsService.create(capsuleId, user.id);
+  }
+
+  @Get('capsules/:capsuleId/invitations')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'List invitation links for a GROUP capsule',
+    description:
+      'Returns invitation status and usage metadata. Raw invitation URLs are not stored and are only returned once at creation.',
+  })
+  @ApiParam({ name: 'capsuleId', format: 'uuid' })
+  @ApiQuery({ name: 'status', required: false, enum: InvitationStatus })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
+  @ApiResponse({
+    status: 200,
+    description: 'Paginated invitation links',
+    type: InvitationListResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Only the capsule owner can list invitations',
+  })
+  @ApiResponse({ status: 404, description: 'Capsule not found' })
+  @ApiResponse({ status: 400, description: 'Invalid query parameters' })
+  async findAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('capsuleId', ParseUUIDPipe) capsuleId: string,
+    @Query() query: ListInvitationsDto,
+  ) {
+    return this.invitationsService.findAll(capsuleId, user.id, query);
   }
 
   @Delete('capsules/:capsuleId/invitations/:invitationId')

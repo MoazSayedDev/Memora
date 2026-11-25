@@ -59,11 +59,15 @@ describe('InvitationsService', () => {
         create: jest.fn(),
         findFirst: jest.fn(),
         findUnique: jest.fn(),
+        findMany: jest.fn(),
+        count: jest.fn(),
         updateMany: jest.fn(),
       },
       capsuleMember: { findUnique: jest.fn(), create: jest.fn() },
-      $transaction: jest.fn(
-        (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma),
+      $transaction: jest.fn((operation: unknown) =>
+        Array.isArray(operation)
+          ? Promise.all(operation)
+          : (operation as (tx: typeof prisma) => Promise<unknown>)(prisma),
       ),
     };
     service = new InvitationsService(prisma, {
@@ -114,6 +118,77 @@ describe('InvitationsService', () => {
     await expect(service.create(capsuleId, ownerId)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+
+  it('lists active and revoked invitations for the owner without exposing tokens', async () => {
+    const activeInvitation = {
+      id: invitationId,
+      status: 'ACTIVE',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      expiresAt: new Date('2026-01-08T00:00:00.000Z'),
+      maxUses: null,
+      usageCount: 2,
+    };
+    const revokedInvitation = {
+      ...activeInvitation,
+      id: '550e8400-e29b-41d4-a716-446655440004',
+      status: 'REVOKED',
+      usageCount: 1,
+    };
+    prisma.capsule.findUnique.mockResolvedValue({ ownerId });
+    prisma.invitationLink.findMany.mockResolvedValue([
+      activeInvitation,
+      revokedInvitation,
+    ]);
+    prisma.invitationLink.count.mockResolvedValue(2);
+
+    await expect(
+      service.findAll(capsuleId, ownerId, { page: 1, limit: 20 }),
+    ).resolves.toEqual({
+      items: [activeInvitation, revokedInvitation],
+      pagination: { page: 1, limit: 20, total: 2, totalPages: 1 },
+    });
+    expect(prisma.invitationLink.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { capsuleId },
+        select: expect.not.objectContaining({ tokenHash: true }),
+      }),
+    );
+    expect(prisma.$transaction).toHaveBeenCalledWith([
+      expect.anything(),
+      expect.anything(),
+    ]);
+  });
+
+  it('filters invitation listings by status and prevents non-owners from listing', async () => {
+    prisma.capsule.findUnique
+      .mockResolvedValueOnce({ ownerId })
+      .mockResolvedValueOnce({ ownerId: memberId });
+    prisma.invitationLink.findMany.mockResolvedValue([]);
+    prisma.invitationLink.count.mockResolvedValue(0);
+
+    await service.findAll(capsuleId, ownerId, {
+      status: 'REVOKED' as any,
+      page: 2,
+      limit: 10,
+    });
+    expect(prisma.invitationLink.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { capsuleId, status: 'REVOKED' },
+        skip: 10,
+        take: 10,
+      }),
+    );
+    await expect(
+      service.findAll(capsuleId, ownerId, { page: 1, limit: 20 }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('returns not found when listing invitations for a missing capsule', async () => {
+    prisma.capsule.findUnique.mockResolvedValue(null);
+    await expect(
+      service.findAll(capsuleId, ownerId, { page: 1, limit: 20 }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('rejects invitations for PERSONAL capsules and ineligible statuses', async () => {

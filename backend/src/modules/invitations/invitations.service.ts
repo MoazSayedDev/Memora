@@ -15,6 +15,7 @@ import {
 } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ListInvitationsDto } from './dto/list-invitations.dto';
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const INVALID_INVITATION_MESSAGE = 'Invitation not found or unavailable';
@@ -129,6 +130,55 @@ export class InvitationsService {
       id: invitation.id,
       invitationUrl,
       expiresAt: invitation.expiresAt,
+    };
+  }
+
+  async findAll(capsuleId: string, userId: string, query: ListInvitationsDto) {
+    const capsule = await this.prisma.capsule.findUnique({
+      where: { id: capsuleId },
+      select: { ownerId: true },
+    });
+    if (!capsule) {
+      throw new NotFoundException('Capsule not found');
+    }
+    if (capsule.ownerId !== userId) {
+      throw new ForbiddenException(
+        'Only the capsule owner can list invitations',
+      );
+    }
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const where: Prisma.InvitationLinkWhereInput = {
+      capsuleId,
+      ...(query.status ? { status: query.status } : {}),
+    };
+    const [invitations, total] = await this.prisma.$transaction([
+      this.prisma.invitationLink.findMany({
+        where,
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          expiresAt: true,
+          maxUses: true,
+          usageCount: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.invitationLink.count({ where }),
+    ]);
+
+    return {
+      items: invitations,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
 

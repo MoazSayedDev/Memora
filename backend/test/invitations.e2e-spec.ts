@@ -68,6 +68,10 @@ describe('Invitations endpoints (e2e)', () => {
       invitationUrl: `https://memora.example/invitations/${token}`,
       expiresAt: new Date('2030-01-01T00:00:00.000Z'),
     }),
+    findAll: jest.fn().mockResolvedValue({
+      items: [],
+      pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+    }),
     revoke: jest
       .fn()
       .mockResolvedValue({ id: invitationId, status: 'REVOKED' }),
@@ -144,6 +148,29 @@ describe('Invitations endpoints (e2e)', () => {
   });
 
   it('requires authentication to create and revoke invitation links', async () => {
+    await request(app.getHttpServer())
+      .get(`/capsules/${capsuleId}/invitations`)
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .get(`/capsules/${capsuleId}/invitations?status=REVOKED&page=2&limit=10`)
+      .set('Authorization', 'Bearer valid-access-token')
+      .expect(200);
+    expect(service.findAll).toHaveBeenCalledWith(
+      capsuleId,
+      ownerId,
+      expect.objectContaining({
+        status: 'REVOKED',
+        page: 2,
+        limit: 10,
+      }),
+    );
+
+    await request(app.getHttpServer())
+      .get(`/capsules/${capsuleId}/invitations?status=INVALID`)
+      .set('Authorization', 'Bearer valid-access-token')
+      .expect(400);
+
     await request(app.getHttpServer())
       .post(`/capsules/${capsuleId}/invitations`)
       .expect(401);
