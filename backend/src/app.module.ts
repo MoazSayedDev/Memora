@@ -8,6 +8,7 @@ import { UsersModule } from './modules/users/users.module';
 import { CapsulesModule } from './modules/capsules/capsules.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { CapsuleMembersModule } from './modules/capsule-members/capsule-members.module';
 
 function validateEnvironment(environment: Record<string, unknown>) {
   const required = [
@@ -41,6 +42,7 @@ function validateEnvironment(environment: Record<string, unknown>) {
     UsersModule,
     CapsulesModule,
     InvitationsModule,
+    CapsuleMembersModule,
     AdminModule,
   ],
   controllers: [AppController],
