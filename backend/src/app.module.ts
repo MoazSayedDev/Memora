@@ -7,6 +7,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { CapsulesModule } from './modules/capsules/capsules.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 function validateEnvironment(environment: Record<string, unknown>) {
   const required = [
@@ -40,6 +41,7 @@ function validateEnvironment(environment: Record<string, unknown>) {
     UsersModule,
     CapsulesModule,
     InvitationsModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

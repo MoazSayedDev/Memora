@@ -12,6 +12,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
+    "admin:bootstrap": "node --env-file=.env -r ts-node/register scripts/bootstrap-admin.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:unit": "jest --runInBand --testMatch='**/test/unit/**/*.spec.ts'",
