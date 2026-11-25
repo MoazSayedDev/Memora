@@ -160,6 +160,53 @@ describe('CapsulesService', () => {
     );
   });
 
+  it('resets status to COLLECTING when updating to GROUP', async () => {
+    prisma.capsule.findFirst
+      .mockResolvedValueOnce({ ...capsule, status: 'DRAFT' })
+      .mockResolvedValueOnce({
+        ...capsule,
+        type: 'GROUP',
+        status: 'COLLECTING',
+      });
+    prisma.capsule.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.update(userId, capsuleId, { type: 'GROUP' as any });
+
+    expect(prisma.capsule.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { type: 'GROUP', status: 'COLLECTING' },
+      }),
+    );
+  });
+
+  it('resets status to DRAFT when updating to PERSONAL', async () => {
+    prisma.capsule.findFirst
+      .mockResolvedValueOnce({ ...capsule, status: 'COLLECTING' })
+      .mockResolvedValueOnce({ ...capsule, type: 'PERSONAL', status: 'DRAFT' });
+    prisma.capsule.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.update(userId, capsuleId, { type: 'PERSONAL' as any });
+
+    expect(prisma.capsule.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { type: 'PERSONAL', status: 'DRAFT' },
+      }),
+    );
+  });
+
+  it('leaves status unchanged when updating without a type change', async () => {
+    prisma.capsule.findFirst
+      .mockResolvedValueOnce({ ...capsule, status: 'COLLECTING' })
+      .mockResolvedValueOnce({ ...capsule, status: 'COLLECTING' });
+    prisma.capsule.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.update(userId, capsuleId, { title: 'Changed' });
+
+    expect(prisma.capsule.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { name: 'Changed' } }),
+    );
+  });
+
   it('is idempotent for repeated cancellation', async () => {
     prisma.capsule.findFirst
       .mockResolvedValueOnce({ ...capsule, status: 'CANCELLED' })

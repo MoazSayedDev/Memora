@@ -147,7 +147,13 @@ export class CapsulesService {
     const data: Prisma.CapsuleUpdateManyMutationInput = {};
     if (dto.title !== undefined) data.name = dto.title;
     if (dto.description !== undefined) data.description = dto.description;
-    if (dto.type !== undefined) data.type = dto.type;
+    if (dto.type !== undefined) {
+      data.type = dto.type;
+      data.status =
+        dto.type === CapsuleType.PERSONAL
+          ? CapsuleStatus.DRAFT
+          : CapsuleStatus.COLLECTING;
+    }
     if (openingDate !== undefined) data.opensAt = openingDate;
     if (dto.cover !== undefined) data.cover = dto.cover;
 
