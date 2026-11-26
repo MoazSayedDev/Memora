@@ -17,6 +17,7 @@ jest.mock('@prisma/client', () => ({
   MemberRole: { OWNER: 'OWNER', MEMBER: 'MEMBER' },
   Prisma: { TransactionIsolationLevel: { Serializable: 'Serializable' } },
 }));
+jest.mock('@nestjs/config', () => ({ ConfigService: class {} }));
 jest.mock('../../../src/prisma/prisma.service', () => ({
   PrismaService: class {},
 }));
@@ -54,13 +55,17 @@ describe('CapsuleMembersService', () => {
         deleteMany: jest.fn(),
         updateMany: jest.fn(),
       },
+      capsuleRemovedMember: { upsert: jest.fn(), deleteMany: jest.fn() },
       $transaction: jest.fn((operation: unknown) =>
         Array.isArray(operation)
           ? Promise.all(operation)
           : (operation as (tx: typeof prisma) => Promise<unknown>)(prisma),
       ),
     };
-    service = new CapsuleMembersService(prisma);
+    prisma.capsuleMember.count.mockResolvedValue(1);
+    service = new CapsuleMembersService(prisma, {
+      getOrThrow: jest.fn().mockReturnValue(50),
+    } as any);
   });
 
   it('adds an existing user as MEMBER', async () => {
@@ -128,6 +133,18 @@ describe('CapsuleMembersService', () => {
     expect(prisma.capsuleMember.create).not.toHaveBeenCalled();
   });
 
+  it('enforces the capsule member limit for owner-added members', async () => {
+    prisma.capsule.findUnique.mockResolvedValue(capsule);
+    prisma.user.findUnique.mockResolvedValue({ id: memberId });
+    prisma.capsuleMember.findUnique.mockResolvedValue(null);
+    prisma.capsuleMember.count.mockResolvedValue(50);
+
+    await expect(
+      service.add(capsuleId, ownerId, memberId),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.capsuleMember.create).not.toHaveBeenCalled();
+  });
+
   it('returns a paginated safe member list to an authorized member', async () => {
     prisma.capsule.findFirst.mockResolvedValue({ id: capsuleId });
     prisma.capsuleMember.findMany.mockResolvedValue([membership]);
@@ -172,6 +189,11 @@ describe('CapsuleMembersService', () => {
     await expect(service.remove(capsuleId, ownerId, memberId)).resolves.toEqual(
       { userId: memberId, removed: true },
     );
+    expect(prisma.capsuleRemovedMember.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { capsuleId_userId: { capsuleId, userId: memberId } },
+      }),
+    );
   });
 
   it('allows members to leave but prevents removing the owner', async () => {
@@ -185,6 +207,7 @@ describe('CapsuleMembersService', () => {
     await expect(
       service.remove(capsuleId, memberId, memberId),
     ).resolves.toEqual({ userId: memberId, removed: true });
+    expect(prisma.capsuleRemovedMember.upsert).not.toHaveBeenCalled();
     await expect(
       service.remove(capsuleId, ownerId, ownerId),
     ).rejects.toBeInstanceOf(BadRequestException);

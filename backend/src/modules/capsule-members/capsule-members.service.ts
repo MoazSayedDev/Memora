@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CapsuleStatus, CapsuleType, MemberRole, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListCapsuleMembersDto } from './dto/list-capsule-members.dto';
@@ -23,7 +24,10 @@ const memberSelect = {
 
 @Injectable()
 export class CapsuleMembersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async add(capsuleId: string, ownerId: string, userId: string) {
     try {
@@ -64,6 +68,21 @@ export class CapsuleMembersService {
             throw new ConflictException('User is already a capsule member');
           }
 
+          const memberCount = await tx.capsuleMember.count({
+            where: { capsuleId },
+          });
+          const maxMembers = Number(
+            this.configService.getOrThrow<number>('MAX_CAPSULE_MEMBERS'),
+          );
+          if (memberCount >= maxMembers) {
+            throw new ConflictException(
+              'Capsule has reached the maximum member limit',
+            );
+          }
+
+          await tx.capsuleRemovedMember.deleteMany({
+            where: { capsuleId, userId },
+          });
           const membership = await tx.capsuleMember.create({
             data: { capsuleId, userId, role: MemberRole.MEMBER },
             select: memberSelect,
@@ -166,6 +185,18 @@ export class CapsuleMembersService {
             throw new ConflictException(
               'Membership changed; refresh and try again',
             );
+          }
+          if (actorId === capsule.ownerId) {
+            await tx.capsuleRemovedMember.upsert({
+              where: {
+                capsuleId_userId: {
+                  capsuleId,
+                  userId: memberUserId,
+                },
+              },
+              create: { capsuleId, userId: memberUserId },
+              update: { removedAt: new Date() },
+            });
           }
           return { userId: memberUserId, removed: true };
         },

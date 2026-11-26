@@ -1,8 +1,14 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import nodemailer, { Transporter } from 'nodemailer';
 import { emailVerificationTemplate } from './templates/email-verification.template';
 import { passwordResetTemplate } from './templates/password-reset.template';
+import { capsuleInvitationTemplate } from './templates/capsule-invitation.template';
+import { capsuleMemberJoinedTemplate } from './templates/capsule-member-joined.template';
 
 @Injectable()
 export class EmailService {
@@ -56,6 +62,30 @@ export class EmailService {
       to,
       'Reset your Memora password',
       passwordResetTemplate(resetUrl),
+    );
+  }
+
+  async sendCapsuleInvitation(
+    to: string,
+    capsuleTitle: string,
+    invitationUrl: string,
+  ): Promise<void> {
+    await this.sendHtml(
+      to,
+      `Invitation to ${capsuleTitle} on Memora`,
+      capsuleInvitationTemplate(capsuleTitle, invitationUrl),
+    );
+  }
+
+  async sendCapsuleMemberJoined(
+    to: string,
+    capsuleTitle: string,
+    memberName: string,
+  ): Promise<void> {
+    await this.sendHtml(
+      to,
+      `A member joined ${capsuleTitle} on Memora`,
+      capsuleMemberJoinedTemplate(capsuleTitle, memberName),
     );
   }
 

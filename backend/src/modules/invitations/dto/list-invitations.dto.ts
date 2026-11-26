@@ -1,13 +1,18 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { InvitationStatus } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
 
+export enum InvitationListStatus {
+  ACTIVE = 'ACTIVE',
+  REVOKED = 'REVOKED',
+  EXPIRED = 'EXPIRED',
+}
+
 export class ListInvitationsDto {
-  @ApiPropertyOptional({ enum: InvitationStatus })
+  @ApiPropertyOptional({ enum: InvitationListStatus })
   @IsOptional()
-  @IsEnum(InvitationStatus)
-  status?: InvitationStatus;
+  @IsEnum(InvitationListStatus)
+  status?: InvitationListStatus;
 
   @ApiPropertyOptional({ default: 1, minimum: 1 })
   @IsOptional()

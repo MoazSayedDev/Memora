@@ -68,6 +68,11 @@ describe('Invitations endpoints (e2e)', () => {
       invitationUrl: `https://memora.example/invitations/${token}`,
       expiresAt: new Date('2030-01-01T00:00:00.000Z'),
     }),
+    sendToEmail: jest.fn().mockResolvedValue({
+      id: invitationId,
+      email: 'invitee@memora.test',
+      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+    }),
     findAll: jest.fn().mockResolvedValue({
       items: [],
       pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
@@ -75,6 +80,12 @@ describe('Invitations endpoints (e2e)', () => {
     revoke: jest
       .fn()
       .mockResolvedValue({ id: invitationId, status: 'REVOKED' }),
+    regenerate: jest.fn().mockResolvedValue({
+      id: invitationId,
+      invitationUrl: `https://memora.example/invitations/${token}`,
+      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+    }),
+    revokeAll: jest.fn().mockResolvedValue({ revokedCount: 2 }),
     validate: jest.fn().mockResolvedValue({
       capsule: {
         id: capsuleId,
@@ -179,7 +190,50 @@ describe('Invitations endpoints (e2e)', () => {
       .post(`/capsules/${capsuleId}/invitations`)
       .set('Authorization', 'Bearer valid-access-token')
       .expect(201);
-    expect(service.create).toHaveBeenCalledWith(capsuleId, ownerId);
+    expect(service.create).toHaveBeenCalledWith(
+      capsuleId,
+      ownerId,
+      expect.objectContaining({ maxUses: null, expiresInDays: 7 }),
+    );
+
+    await request(app.getHttpServer())
+      .post(`/capsules/${capsuleId}/invitations`)
+      .set('Authorization', 'Bearer valid-access-token')
+      .send({ maxUses: 3, expiresInDays: 2 })
+      .expect(201);
+    expect(service.create).toHaveBeenCalledWith(
+      capsuleId,
+      ownerId,
+      expect.objectContaining({ maxUses: 3, expiresInDays: 2 }),
+    );
+    await request(app.getHttpServer())
+      .post(`/capsules/${capsuleId}/invitations`)
+      .set('Authorization', 'Bearer valid-access-token')
+      .send({ maxUses: 0 })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post(`/capsules/${capsuleId}/invitations/email`)
+      .set('Authorization', 'Bearer valid-access-token')
+      .send({ email: 'invitee@memora.test', maxUses: 4 })
+      .expect(201);
+    expect(service.sendToEmail).toHaveBeenCalledWith(
+      capsuleId,
+      ownerId,
+      expect.objectContaining({ email: 'invitee@memora.test', maxUses: 4 }),
+    );
+
+    await request(app.getHttpServer())
+      .post(`/capsules/${capsuleId}/invitations/${invitationId}/regenerate`)
+      .set('Authorization', 'Bearer valid-access-token')
+      .send({ maxUses: 2 })
+      .expect(201);
+    expect(service.regenerate).toHaveBeenCalledWith(
+      capsuleId,
+      invitationId,
+      ownerId,
+      expect.objectContaining({ maxUses: 2 }),
+    );
 
     await request(app.getHttpServer())
       .delete(`/capsules/${capsuleId}/invitations/${invitationId}`)
@@ -194,5 +248,11 @@ describe('Invitations endpoints (e2e)', () => {
       invitationId,
       ownerId,
     );
+
+    await request(app.getHttpServer())
+      .delete(`/capsules/${capsuleId}/invitations`)
+      .set('Authorization', 'Bearer valid-access-token')
+      .expect(200);
+    expect(service.revokeAll).toHaveBeenCalledWith(capsuleId, ownerId);
   });
 });

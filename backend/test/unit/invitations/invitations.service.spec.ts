@@ -38,7 +38,11 @@ describe('InvitationsService', () => {
     type: 'GROUP',
     status: 'COLLECTING',
     opensAt: new Date('2030-01-01T00:00:00.000Z'),
-    owner: { name: 'Owner', username: 'owner' },
+    owner: {
+      name: 'Owner',
+      username: 'owner',
+      email: 'owner@memora.test',
+    },
   };
   const invitation = {
     id: invitationId,
@@ -51,10 +55,15 @@ describe('InvitationsService', () => {
   };
   let prisma: any;
   let service: InvitationsService;
+  const emailService = {
+    sendCapsuleInvitation: jest.fn().mockResolvedValue(undefined),
+    sendCapsuleMemberJoined: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(() => {
+    jest.clearAllMocks();
     prisma = {
-      capsule: { findUnique: jest.fn() },
+      capsule: { findUnique: jest.fn().mockResolvedValue(capsule) },
       invitationLink: {
         create: jest.fn(),
         findFirst: jest.fn(),
@@ -62,26 +71,49 @@ describe('InvitationsService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         updateMany: jest.fn(),
+        deleteMany: jest.fn(),
       },
-      capsuleMember: { findUnique: jest.fn(), create: jest.fn() },
+      capsuleMember: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({
+          id: '550e8400-e29b-41d4-a716-446655440004',
+          role: 'MEMBER',
+          joinedAt: new Date(),
+        }),
+        count: jest.fn().mockResolvedValue(1),
+      },
+      capsuleRemovedMember: { findUnique: jest.fn().mockResolvedValue(null) },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          name: 'Member',
+          isEmailVerified: true,
+        }),
+      },
       $transaction: jest.fn((operation: unknown) =>
         Array.isArray(operation)
           ? Promise.all(operation)
           : (operation as (tx: typeof prisma) => Promise<unknown>)(prisma),
       ),
     };
-    service = new InvitationsService(prisma, {
-      getOrThrow: jest.fn().mockReturnValue('https://memora.example'),
-    } as any);
+    prisma.invitationLink.updateMany.mockResolvedValue({ count: 1 });
+    service = new InvitationsService(
+      prisma,
+      {
+        getOrThrow: jest.fn((key: string) => {
+          const values: Record<string, string> = {
+            FRONTEND_URL: 'https://memora.example',
+            MAX_CAPSULE_MEMBERS: '50',
+            INVITATION_RETENTION_DAYS: '30',
+          };
+          return values[key];
+        }),
+      } as any,
+      emailService as any,
+    );
   });
 
   it('creates an owner invitation with only a token hash persisted', async () => {
-    prisma.capsule.findUnique.mockResolvedValue({
-      id: capsuleId,
-      ownerId,
-      type: 'GROUP',
-      status: 'COLLECTING',
-    });
+    prisma.capsule.findUnique.mockResolvedValue(capsule);
     prisma.invitationLink.create.mockImplementation(
       ({ data }: { data: Record<string, unknown> }) => ({
         id: invitationId,
@@ -103,17 +135,100 @@ describe('InvitationsService', () => {
       capsuleId,
       createdBy: ownerId,
       status: 'ACTIVE',
+      maxUses: null,
     });
     expect(result).not.toHaveProperty('tokenHash');
     expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
+    expect(result.expiresAt.getTime()).toBeLessThanOrEqual(
+      Date.now() + 7 * 24 * 60 * 60 * 1000,
+    );
+  });
+
+  it('persists custom invitation use limits and expiry', async () => {
+    prisma.invitationLink.create.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) => ({
+        id: invitationId,
+        expiresAt: data.expiresAt,
+      }),
+    );
+
+    const result = await service.create(capsuleId, ownerId, {
+      maxUses: 3,
+      expiresInDays: 2,
+    });
+
+    expect(prisma.invitationLink.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          maxUses: 3,
+          expiresAt: expect.any(Date),
+        }),
+      }),
+    );
+    expect(
+      (
+        prisma.invitationLink.create.mock.calls[0][0].data.expiresAt as Date
+      ).getTime(),
+    ).toBeLessThanOrEqual(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    expect(result.id).toBe(invitationId);
+  });
+
+  it('creates and emails a limited invitation', async () => {
+    prisma.invitationLink.create.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) => ({
+        id: invitationId,
+        expiresAt: data.expiresAt,
+      }),
+    );
+
+    await expect(
+      service.sendToEmail(capsuleId, ownerId, {
+        email: 'invitee@memora.test',
+        maxUses: 2,
+        expiresInDays: 3,
+      }),
+    ).resolves.toMatchObject({
+      id: invitationId,
+      email: 'invitee@memora.test',
+    });
+    expect(emailService.sendCapsuleInvitation).toHaveBeenCalledWith(
+      'invitee@memora.test',
+      'Summer',
+      expect.stringMatching(/^https:\/\/memora\.example\/invitations\//),
+    );
+    expect(prisma.invitationLink.create.mock.calls[0][0].data).toMatchObject({
+      maxUses: 2,
+    });
+  });
+
+  it('revokes an emailed invitation if email delivery fails', async () => {
+    prisma.invitationLink.create.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) => ({
+        id: invitationId,
+        expiresAt: data.expiresAt,
+      }),
+    );
+    emailService.sendCapsuleInvitation.mockRejectedValueOnce(
+      new Error('SMTP failed'),
+    );
+
+    await expect(
+      service.sendToEmail(capsuleId, ownerId, {
+        email: 'invitee@memora.test',
+        maxUses: null,
+        expiresInDays: 7,
+      }),
+    ).rejects.toThrow('SMTP failed');
+    expect(prisma.invitationLink.updateMany).toHaveBeenCalledWith({
+      where: { id: invitationId, status: 'ACTIVE' },
+      data: { status: 'REVOKED' },
+    });
   });
 
   it('prevents a non-owner from creating an invitation', async () => {
     prisma.capsule.findUnique.mockResolvedValue({
-      id: capsuleId,
+      ...capsule,
       ownerId: memberId,
-      type: 'GROUP',
-      status: 'COLLECTING',
     });
     await expect(service.create(capsuleId, ownerId)).rejects.toBeInstanceOf(
       ForbiddenException,
@@ -124,8 +239,8 @@ describe('InvitationsService', () => {
     const activeInvitation = {
       id: invitationId,
       status: 'ACTIVE',
-      createdAt: new Date('2026-01-01T00:00:00.000Z'),
-      expiresAt: new Date('2026-01-08T00:00:00.000Z'),
+      createdAt: new Date('2030-01-01T00:00:00.000Z'),
+      expiresAt: new Date('2030-01-08T00:00:00.000Z'),
       maxUses: null,
       usageCount: 2,
     };
@@ -182,6 +297,39 @@ describe('InvitationsService', () => {
     await expect(
       service.findAll(capsuleId, ownerId, { page: 1, limit: 20 }),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('reports an active-but-expired link as EXPIRED in listings', async () => {
+    const expiresAt = new Date(Date.now() - 1);
+    prisma.capsule.findUnique.mockResolvedValue({ ownerId });
+    prisma.invitationLink.findMany.mockResolvedValue([
+      {
+        id: invitationId,
+        status: 'ACTIVE',
+        createdAt: new Date(),
+        expiresAt,
+        maxUses: null,
+        usageCount: 0,
+      },
+    ]);
+    prisma.invitationLink.count.mockResolvedValue(1);
+
+    const result = await service.findAll(capsuleId, ownerId, {
+      status: 'EXPIRED' as any,
+      page: 1,
+      limit: 20,
+    });
+
+    expect(result.items[0].status).toBe('EXPIRED');
+    expect(prisma.invitationLink.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          capsuleId,
+          status: 'ACTIVE',
+          expiresAt: { lte: expect.any(Date) },
+        },
+      }),
+    );
   });
 
   it('returns not found when listing invitations for a missing capsule', async () => {
@@ -253,9 +401,61 @@ describe('InvitationsService', () => {
       id: invitationId,
       status: 'REVOKED',
     });
+
     await expect(
       service.revoke(capsuleId, invitationId, ownerId),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('regenerates an invitation atomically and revokes the old link', async () => {
+    prisma.invitationLink.findFirst.mockResolvedValue({
+      id: invitationId,
+      status: 'ACTIVE',
+    });
+    prisma.invitationLink.create.mockImplementation(
+      ({ data }: { data: Record<string, unknown> }) => ({
+        id: '550e8400-e29b-41d4-a716-446655440005',
+        expiresAt: data.expiresAt,
+      }),
+    );
+
+    const result = await service.regenerate(capsuleId, invitationId, ownerId, {
+      maxUses: 5,
+      expiresInDays: 4,
+    });
+
+    expect(result.id).toBe('550e8400-e29b-41d4-a716-446655440005');
+    expect(result.invitationUrl).toContain('/invitations/');
+    expect(prisma.invitationLink.updateMany).toHaveBeenCalledWith({
+      where: { id: invitationId, capsuleId, status: 'ACTIVE' },
+      data: { status: 'REVOKED' },
+    });
+    expect(prisma.invitationLink.create.mock.calls[0][0].data).toMatchObject({
+      maxUses: 5,
+      status: 'ACTIVE',
+    });
+  });
+
+  it('revokes all active invitation links for the capsule owner', async () => {
+    prisma.invitationLink.updateMany.mockResolvedValue({ count: 3 });
+    await expect(service.revokeAll(capsuleId, ownerId)).resolves.toEqual({
+      revokedCount: 3,
+    });
+    expect(prisma.invitationLink.updateMany).toHaveBeenCalledWith({
+      where: { capsuleId, status: 'ACTIVE' },
+      data: { status: 'REVOKED' },
+    });
+  });
+
+  it('cleans up active expired invitations after the configured retention period', async () => {
+    prisma.invitationLink.deleteMany.mockResolvedValue({ count: 4 });
+    await expect(service.cleanupExpiredInvitations()).resolves.toBe(4);
+    expect(prisma.invitationLink.deleteMany).toHaveBeenCalledWith({
+      where: {
+        status: 'ACTIVE',
+        expiresAt: { lt: expect.any(Date) },
+      },
+    });
   });
 
   it('returns only safe preview data for a valid invitation', async () => {
@@ -336,10 +536,116 @@ describe('InvitationsService', () => {
       data: { capsuleId, userId: memberId, role: 'MEMBER' },
       select: { id: true, role: true, joinedAt: true },
     });
+    expect(
+      prisma.invitationLink.updateMany.mock.invocationCallOrder[0],
+    ).toBeLessThan(prisma.capsuleMember.create.mock.invocationCallOrder[0]);
     expect(result.membership.role).toBe('MEMBER');
+    expect(emailService.sendCapsuleMemberJoined).toHaveBeenCalledWith(
+      'owner@memora.test',
+      'Summer',
+      'Member',
+    );
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: 'Serializable',
     });
+  });
+
+  it('checks maxUses before creating membership and rejects a raced final use', async () => {
+    prisma.invitationLink.findUnique.mockResolvedValue({
+      ...invitation,
+      maxUses: 1,
+      usageCount: 0,
+    });
+    prisma.invitationLink.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.join(rawToken, memberId)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(prisma.invitationLink.updateMany).toHaveBeenCalled();
+    expect(prisma.capsuleMember.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a link whose maximum use count has already been reached', async () => {
+    prisma.invitationLink.findUnique.mockResolvedValue({
+      ...invitation,
+      maxUses: 1,
+      usageCount: 1,
+    });
+
+    await expect(service.join(rawToken, memberId)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(prisma.invitationLink.updateMany).not.toHaveBeenCalled();
+    expect(prisma.capsuleMember.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects expired links and links to cancelled capsules', async () => {
+    prisma.invitationLink.findUnique
+      .mockResolvedValueOnce({
+        ...invitation,
+        expiresAt: new Date(Date.now() - 1),
+      })
+      .mockResolvedValueOnce({
+        ...invitation,
+        capsule: { ...capsule, status: 'CANCELLED' },
+      });
+
+    await expect(service.join(rawToken, memberId)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    await expect(service.join(rawToken, memberId)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(prisma.capsuleMember.create).not.toHaveBeenCalled();
+  });
+
+  it('blocks users removed by the capsule owner from rejoining by invitation', async () => {
+    prisma.invitationLink.findUnique.mockResolvedValue(invitation);
+    prisma.capsuleRemovedMember.findUnique.mockResolvedValue({
+      userId: memberId,
+    });
+
+    await expect(service.join(rawToken, memberId)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prisma.invitationLink.updateMany).not.toHaveBeenCalled();
+    expect(prisma.capsuleMember.create).not.toHaveBeenCalled();
+  });
+
+  it('allows a user who left voluntarily to rejoin by invitation', async () => {
+    prisma.invitationLink.findUnique.mockResolvedValue(invitation);
+    prisma.capsuleRemovedMember.findUnique.mockResolvedValue(null);
+
+    await expect(service.join(rawToken, memberId)).resolves.toHaveProperty(
+      'membership.role',
+      'MEMBER',
+    );
+    expect(prisma.capsuleRemovedMember.findUnique).toHaveBeenCalled();
+  });
+
+  it('requires a verified email before joining', async () => {
+    prisma.invitationLink.findUnique.mockResolvedValue(invitation);
+    prisma.user.findUnique.mockResolvedValue({
+      name: 'Member',
+      isEmailVerified: false,
+    });
+
+    await expect(service.join(rawToken, memberId)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prisma.invitationLink.updateMany).not.toHaveBeenCalled();
+    expect(prisma.capsuleMember.create).not.toHaveBeenCalled();
+  });
+
+  it('enforces the configured maximum capsule member count', async () => {
+    prisma.invitationLink.findUnique.mockResolvedValue(invitation);
+    prisma.capsuleMember.count.mockResolvedValue(50);
+
+    await expect(service.join(rawToken, memberId)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(prisma.invitationLink.updateMany).not.toHaveBeenCalled();
+    expect(prisma.capsuleMember.create).not.toHaveBeenCalled();
   });
 
   it('prevents the owner and existing members from joining', async () => {

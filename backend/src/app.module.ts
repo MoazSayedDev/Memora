@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -28,7 +29,24 @@ function validateEnvironment(environment: Record<string, unknown>) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error('MAIL_PORT must be a valid TCP port');
   }
-  return environment;
+  const maxCapsuleMembers = Number(environment.MAX_CAPSULE_MEMBERS ?? 50);
+  if (!Number.isInteger(maxCapsuleMembers) || maxCapsuleMembers < 1) {
+    throw new Error('MAX_CAPSULE_MEMBERS must be a positive integer');
+  }
+  const invitationRetentionDays = Number(
+    environment.INVITATION_RETENTION_DAYS ?? 30,
+  );
+  if (
+    !Number.isInteger(invitationRetentionDays) ||
+    invitationRetentionDays < 1
+  ) {
+    throw new Error('INVITATION_RETENTION_DAYS must be a positive integer');
+  }
+  return {
+    ...environment,
+    MAX_CAPSULE_MEMBERS: maxCapsuleMembers,
+    INVITATION_RETENTION_DAYS: invitationRetentionDays,
+  };
 }
 
 @Module({
@@ -37,6 +55,7 @@ function validateEnvironment(environment: Record<string, unknown>) {
       isGlobal: true,
       validate: validateEnvironment,
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     UsersModule,

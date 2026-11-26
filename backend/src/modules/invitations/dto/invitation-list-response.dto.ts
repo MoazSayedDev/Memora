@@ -1,12 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { InvitationStatus } from '@prisma/client';
+import { InvitationListStatus } from './list-invitations.dto';
 
 export class InvitationListItemDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
-  @ApiProperty({ enum: InvitationStatus })
-  status!: InvitationStatus;
+  @ApiProperty({ enum: InvitationListStatus })
+  status!: InvitationListStatus;
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;

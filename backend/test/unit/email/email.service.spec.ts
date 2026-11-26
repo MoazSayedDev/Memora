@@ -70,6 +70,36 @@ describe('EmailService', () => {
     expect(mockSendMail).toHaveBeenCalledTimes(2);
   });
 
+  it('sends escaped capsule invitation and owner notification emails', async () => {
+    mockSendMail.mockResolvedValue({ messageId: 'test-message' });
+
+    await service.sendCapsuleInvitation(
+      'invitee@memora.test',
+      '<Capsule>',
+      'https://memora.test/invitations/token',
+    );
+    await service.sendCapsuleMemberJoined(
+      'owner@memora.test',
+      '<Capsule>',
+      '<Member>',
+    );
+
+    expect(mockSendMail).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        to: 'invitee@memora.test',
+        html: expect.stringContaining('&lt;Capsule&gt;'),
+      }),
+    );
+    expect(mockSendMail).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        to: 'owner@memora.test',
+        html: expect.stringContaining('&lt;Member&gt;'),
+      }),
+    );
+  });
+
   it('handles SMTP delivery failures', async () => {
     mockSendMail.mockRejectedValue(new Error('SMTP unavailable'));
     await expect(

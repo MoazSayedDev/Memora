@@ -16,6 +16,7 @@ import { CapsuleMembersService } from '../src/modules/capsule-members/capsule-me
 jest.mock('@prisma/client', () => ({
   MemberRole: { OWNER: 'OWNER', MEMBER: 'MEMBER' },
 }));
+jest.mock('@nestjs/config', () => ({ ConfigService: class {} }));
 jest.mock('../src/prisma/prisma.service', () => ({
   PrismaService: class {},
 }));
