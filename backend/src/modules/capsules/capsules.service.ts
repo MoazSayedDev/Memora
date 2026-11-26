@@ -250,6 +250,9 @@ export class CapsulesService {
       await tx.capsuleMember.deleteMany({
         where: { capsuleId: capsule.id },
       });
+      await tx.capsuleRemovedMember.deleteMany({
+        where: { capsuleId: capsule.id },
+      });
       await tx.capsule.delete({
         where: { id: capsule.id },
       });

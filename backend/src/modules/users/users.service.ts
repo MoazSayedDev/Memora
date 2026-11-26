@@ -226,6 +226,9 @@ export class UsersService {
         await tx.capsuleMember.deleteMany({
           where: { capsuleId: { in: ownedCapsuleIds } },
         });
+        await tx.capsuleRemovedMember.deleteMany({
+          where: { capsuleId: { in: ownedCapsuleIds } },
+        });
         await tx.capsule.deleteMany({
           where: { id: { in: ownedCapsuleIds } },
         });

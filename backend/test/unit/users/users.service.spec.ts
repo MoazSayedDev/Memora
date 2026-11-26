@@ -58,6 +58,7 @@ describe('UsersService', () => {
         findMany: jest.fn().mockResolvedValue([]),
         deleteMany: jest.fn(),
       },
+      capsuleRemovedMember: { deleteMany: jest.fn() },
       capsuleEntry: {
         findMany: jest.fn().mockResolvedValue([]),
         deleteMany: jest.fn(),

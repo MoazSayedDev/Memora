@@ -1,5 +1,5 @@
 CREATE TABLE "capsule_removed_members" (
-    "capsule_id" UUID NOT NULL,
+    "capsule_id" TEXT NOT NULL,
     "user_id" UUID NOT NULL,
     "removed_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -8,11 +8,6 @@ CREATE TABLE "capsule_removed_members" (
 
 CREATE INDEX "capsule_removed_members_user_id_idx"
 ON "capsule_removed_members"("user_id");
-
-ALTER TABLE "capsule_removed_members"
-ADD CONSTRAINT "capsule_removed_members_capsule_id_fkey"
-FOREIGN KEY ("capsule_id") REFERENCES "capsules"("id")
-ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "capsule_removed_members"
 ADD CONSTRAINT "capsule_removed_members_user_id_fkey"

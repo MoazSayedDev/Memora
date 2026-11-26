@@ -69,7 +69,6 @@ model Capsule {
   owner       User             @relation("CapsuleOwner", fields: [ownerId], references: [id])
   members     CapsuleMember[]
   invitations InvitationLink[]
-  removedMembers CapsuleRemovedMember[]
 
   @@index([ownerId])
   @@index([status, opensAt])
@@ -96,10 +95,9 @@ model InvitationLink {
 }
 
 model CapsuleRemovedMember {
-  capsuleId String   @map("capsule_id") @db.Uuid
+  capsuleId String   @map("capsule_id") @db.Text
   userId    String   @map("user_id") @db.Uuid
   removedAt DateTime @default(now()) @map("removed_at")
-  capsule   Capsule  @relation(fields: [capsuleId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([capsuleId, userId])
