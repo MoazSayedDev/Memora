@@ -14,6 +14,7 @@ enum CapsuleType {
 enum CapsuleStatus {
   DRAFT
   COLLECTING
+  CLOSED
   OPEN
   CANCELLED
 }
@@ -51,6 +52,7 @@ model User {
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens PasswordResetToken[]
   removedCapsuleMembers CapsuleRemovedMember[]
+  uploadedAttachments EntryAttachment[] @relation("AttachmentUploader")
 
   @@map("users")
 }
@@ -63,6 +65,9 @@ model Capsule {
   cover       String?
   type        CapsuleType
   opensAt     DateTime?        @map("opens_at")
+  closeAt     DateTime?        @map("close_at")
+  closedAt    DateTime?        @map("closed_at")
+  openedAt    DateTime?        @map("opened_at")
   status      CapsuleStatus
   createdAt   DateTime         @default(now()) @map("created_at")
   updatedAt   DateTime         @updatedAt @map("updated_at")
@@ -72,6 +77,7 @@ model Capsule {
 
   @@index([ownerId])
   @@index([status, opensAt])
+  @@index([status, closeAt])
   @@map("capsules")
 }
 
@@ -135,17 +141,21 @@ model CapsuleEntry {
 }
 
 model EntryAttachment {
-  id        String         @id @default(uuid()) @db.Uuid
-  entryId   String         @map("entry_id") @db.Uuid
-  type      AttachmentType
-  fileUrl   String         @map("file_url")
-  mimeType  String         @map("mime_type")
-  fileSize  Int            @map("file_size")
-  duration  Int?
-  createdAt DateTime       @default(now()) @map("created_at")
-  entry     CapsuleEntry   @relation(fields: [entryId], references: [id])
+  id           String         @id @default(uuid()) @db.Uuid
+  entryId      String         @map("entry_id") @db.Uuid
+  uploadedById String?        @map("uploaded_by_id") @db.Uuid
+  originalName String?        @map("original_name")
+  type         AttachmentType
+  fileUrl      String         @map("file_url")
+  mimeType     String         @map("mime_type")
+  fileSize     Int            @map("file_size")
+  duration     Int?
+  createdAt    DateTime       @default(now()) @map("created_at")
+  entry        CapsuleEntry   @relation(fields: [entryId], references: [id])
+  uploadedBy   User?          @relation("AttachmentUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@index([entryId])
+  @@index([uploadedById])
   @@map("entry_attachments")
 }
 

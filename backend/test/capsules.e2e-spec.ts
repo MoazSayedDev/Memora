@@ -12,12 +12,14 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { CapsulesController } from '../src/modules/capsules/capsules.controller';
 import { CapsulesService } from '../src/modules/capsules/capsules.service';
+import { CapsuleLifecycleService } from '../src/modules/capsules/capsule-lifecycle.service';
 
 jest.mock('@prisma/client', () => ({
   CapsuleType: { PERSONAL: 'PERSONAL', GROUP: 'GROUP' },
   CapsuleStatus: {
     DRAFT: 'DRAFT',
     COLLECTING: 'COLLECTING',
+    CLOSED: 'CLOSED',
     OPEN: 'OPEN',
     CANCELLED: 'CANCELLED',
   },
@@ -66,6 +68,16 @@ describe('Capsules endpoints (e2e)', () => {
       message: 'Capsule deleted successfully',
     }),
   };
+  const lifecycleService = {
+    updateSchedule: jest.fn().mockResolvedValue({
+      id: '550e8400-e29b-41d4-a716-446655440001',
+      status: 'COLLECTING',
+    }),
+    closeNow: jest.fn().mockResolvedValue({
+      id: '550e8400-e29b-41d4-a716-446655440001',
+      status: 'CLOSED',
+    }),
+  };
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -73,6 +85,7 @@ describe('Capsules endpoints (e2e)', () => {
       providers: [
         Reflector,
         { provide: CapsulesService, useValue: service },
+        { provide: CapsuleLifecycleService, useValue: lifecycleService },
         { provide: APP_GUARD, useClass: CapsulesTestGuard },
       ],
     }).compile();
@@ -148,6 +161,30 @@ describe('Capsules endpoints (e2e)', () => {
       .set('Authorization', 'Bearer valid-access-token')
       .send({ title: 'Updated' })
       .expect(200);
+  });
+
+  it('updates the schedule and closes a capsule through lifecycle endpoints', async () => {
+    const closeAt = new Date(Date.now() + 60_000).toISOString();
+    const openAt = new Date(Date.now() + 120_000).toISOString();
+    await request(app.getHttpServer())
+      .patch('/capsules/550e8400-e29b-41d4-a716-446655440001/schedule')
+      .set('Authorization', 'Bearer valid-access-token')
+      .send({ closeAt, openAt })
+      .expect(200);
+    expect(lifecycleService.updateSchedule).toHaveBeenCalledWith(
+      '550e8400-e29b-41d4-a716-446655440000',
+      '550e8400-e29b-41d4-a716-446655440001',
+      { closeAt, openAt },
+    );
+
+    await request(app.getHttpServer())
+      .post('/capsules/550e8400-e29b-41d4-a716-446655440001/close')
+      .set('Authorization', 'Bearer valid-access-token')
+      .expect(200);
+    expect(lifecycleService.closeNow).toHaveBeenCalledWith(
+      '550e8400-e29b-41d4-a716-446655440000',
+      '550e8400-e29b-41d4-a716-446655440001',
+    );
   });
 
   it('rejects protected fields', async () => {

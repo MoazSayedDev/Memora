@@ -12,6 +12,7 @@ jest.mock('@prisma/client', () => ({
   CapsuleStatus: {
     DRAFT: 'DRAFT',
     COLLECTING: 'COLLECTING',
+    CLOSED: 'CLOSED',
     OPEN: 'OPEN',
     CANCELLED: 'CANCELLED',
   },

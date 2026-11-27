@@ -11,6 +11,7 @@ import { InvitationsModule } from './modules/invitations/invitations.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { CapsuleMembersModule } from './modules/capsule-members/capsule-members.module';
 import { EntriesModule } from './modules/entries/entries.module';
+import { AttachmentsModule } from './modules/attachments/attachments.module';
 
 function validateEnvironment(environment: Record<string, unknown>) {
   const required = [
@@ -43,10 +44,27 @@ function validateEnvironment(environment: Record<string, unknown>) {
   ) {
     throw new Error('INVITATION_RETENTION_DAYS must be a positive integer');
   }
+  const attachmentSizeDefaults = {
+    MAX_ATTACHMENT_IMAGE_SIZE_MB: 10,
+    MAX_ATTACHMENT_DOCUMENT_SIZE_MB: 20,
+    MAX_ATTACHMENT_AUDIO_SIZE_MB: 30,
+    MAX_ATTACHMENT_VIDEO_SIZE_MB: 100,
+  };
+  const attachmentSizes = Object.fromEntries(
+    Object.entries(attachmentSizeDefaults).map(([key, defaultValue]) => {
+      const value = Number(environment[key] ?? defaultValue);
+      if (!Number.isSafeInteger(value) || value < 1 || value > 2047) {
+        throw new Error(`${key} must be an integer between 1 and 2047`);
+      }
+      return [key, value];
+    }),
+  );
   return {
     ...environment,
     MAX_CAPSULE_MEMBERS: maxCapsuleMembers,
     INVITATION_RETENTION_DAYS: invitationRetentionDays,
+    UPLOADS_DIR: environment.UPLOADS_DIR ?? 'uploads',
+    ...attachmentSizes,
   };
 }
 
@@ -64,6 +82,7 @@ function validateEnvironment(environment: Record<string, unknown>) {
     InvitationsModule,
     CapsuleMembersModule,
     EntriesModule,
+    AttachmentsModule,
     AdminModule,
   ],
   controllers: [AppController],

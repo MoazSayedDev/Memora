@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CapsulesService } from '../../../src/modules/capsules/capsules.service';
 
 jest.mock('@prisma/client', () => ({
@@ -9,6 +6,7 @@ jest.mock('@prisma/client', () => ({
   CapsuleStatus: {
     DRAFT: 'DRAFT',
     COLLECTING: 'COLLECTING',
+    CLOSED: 'CLOSED',
     OPEN: 'OPEN',
     CANCELLED: 'CANCELLED',
   },
@@ -90,6 +88,50 @@ describe('CapsulesService', () => {
         type: 'GROUP' as any,
       }),
     ).resolves.toHaveProperty('status', 'COLLECTING');
+  });
+
+  it('starts a scheduled personal capsule in COLLECTING status', async () => {
+    const closeAt = new Date(Date.now() + 60_000).toISOString();
+    const openAt = new Date(Date.now() + 120_000).toISOString();
+    prisma.capsule.create.mockResolvedValue({
+      ...capsule,
+      status: 'COLLECTING',
+      closeAt: new Date(closeAt),
+    });
+    prisma.$transaction.mockImplementation(
+      (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma),
+    );
+
+    await service.create(userId, {
+      title: 'Scheduled',
+      type: 'PERSONAL' as any,
+      closeAt,
+      openAt,
+    });
+
+    expect(prisma.capsule.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          closeAt: new Date(closeAt),
+          opensAt: new Date(openAt),
+          status: 'COLLECTING',
+        }),
+      }),
+    );
+  });
+
+  it('rejects a closing date that is not before the opening date', async () => {
+    const openAt = new Date(Date.now() + 60_000).toISOString();
+    const closeAt = new Date(Date.now() + 120_000).toISOString();
+
+    await expect(
+      service.create(userId, {
+        title: 'Invalid schedule',
+        type: 'GROUP' as any,
+        closeAt,
+        openAt,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects a past opening date', async () => {
@@ -179,7 +221,7 @@ describe('CapsulesService', () => {
     );
   });
 
-  it('resets status to DRAFT when updating to PERSONAL', async () => {
+  it('does not move a collecting capsule back to DRAFT when changing to PERSONAL', async () => {
     prisma.capsule.findFirst
       .mockResolvedValueOnce({ ...capsule, status: 'COLLECTING' })
       .mockResolvedValueOnce({ ...capsule, type: 'PERSONAL', status: 'DRAFT' });
@@ -189,7 +231,7 @@ describe('CapsulesService', () => {
 
     expect(prisma.capsule.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { type: 'PERSONAL', status: 'DRAFT' },
+        data: { type: 'PERSONAL' },
       }),
     );
   });

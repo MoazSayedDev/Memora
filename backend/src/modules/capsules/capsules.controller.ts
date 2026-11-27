@@ -11,19 +11,24 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { CapsulesService } from './capsules.service';
 import { CreateCapsuleDto } from './dto/create-capsule.dto';
 import { ListCapsulesDto } from './dto/list-capsules.dto';
 import { UpdateCapsuleDto } from './dto/update-capsule.dto';
+import { UpdateCapsuleScheduleDto } from './dto/update-capsule-schedule.dto';
+import { CapsuleLifecycleService } from './capsule-lifecycle.service';
 
 @ApiTags('Capsules')
 @ApiBearerAuth()
 @Controller('capsules')
 export class CapsulesController {
-  constructor(private readonly capsulesService: CapsulesService) {}
+  constructor(
+    private readonly capsulesService: CapsulesService,
+    private readonly capsuleLifecycleService: CapsuleLifecycleService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a capsule' })
@@ -68,6 +73,44 @@ export class CapsulesController {
     @Body() dto: UpdateCapsuleDto,
   ) {
     return this.capsulesService.update(user.id, id, dto);
+  }
+
+  @Patch(':id/schedule')
+  @ApiOperation({ summary: 'Update a capsule schedule' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiBody({ type: UpdateCapsuleScheduleDto })
+  @ApiResponse({ status: 200, description: 'Capsule schedule updated' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid schedule or lifecycle state',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Capsule not found or inaccessible',
+  })
+  async updateSchedule(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCapsuleScheduleDto,
+  ) {
+    return this.capsuleLifecycleService.updateSchedule(user.id, id, dto);
+  }
+
+  @Post(':id/close')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Close a collecting capsule immediately' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Capsule closed' })
+  @ApiResponse({ status: 400, description: 'Capsule cannot be closed' })
+  @ApiResponse({
+    status: 404,
+    description: 'Capsule not found or inaccessible',
+  })
+  async closeNow(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.capsuleLifecycleService.closeNow(user.id, id);
   }
 
   @Patch(':id/cancel')

@@ -1,6 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CapsuleType } from '@prisma/client';
-import { IsDateString, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class CreateCapsuleDto {
   @ApiProperty({ example: 'Summer Memories', minLength: 1, maxLength: 100 })
@@ -9,7 +16,10 @@ export class CreateCapsuleDto {
   @MaxLength(100)
   title: string;
 
-  @ApiPropertyOptional({ example: 'Photos and messages for summer', maxLength: 1000 })
+  @ApiPropertyOptional({
+    example: 'Photos and messages for summer',
+    maxLength: 1000,
+  })
   @IsOptional()
   @IsString()
   @MaxLength(1000)
@@ -21,13 +31,32 @@ export class CreateCapsuleDto {
 
   @ApiPropertyOptional({
     example: '2027-01-01T12:00:00.000Z',
-    description: 'The future date and time at which the capsule opens',
+    description: 'Legacy alias for openAt',
   })
   @IsOptional()
   @IsDateString()
   openingDate?: string;
 
-  @ApiPropertyOptional({ example: 'https://example.com/cover.jpg', maxLength: 2048 })
+  @ApiPropertyOptional({
+    example: '2027-01-01T12:00:00.000Z',
+    description: 'Future date and time at which the capsule opens',
+  })
+  @IsOptional()
+  @IsDateString()
+  openAt?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-12-01T12:00:00.000Z',
+    description: 'Future date and time at which the capsule closes',
+  })
+  @IsOptional()
+  @IsDateString()
+  closeAt?: string;
+
+  @ApiPropertyOptional({
+    example: 'https://example.com/cover.jpg',
+    maxLength: 2048,
+  })
   @IsOptional()
   @IsString()
   @MaxLength(2048)

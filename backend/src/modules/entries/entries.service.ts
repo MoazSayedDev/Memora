@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { CapsuleStatus, Prisma } from '@prisma/client';
+import { assertCapsuleAcceptsContent } from '../capsules/capsule-lifecycle.policy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateEntryDto } from './dto/create-entry.dto';
 import { QueryEntriesDto } from './dto/query-entries.dto';
@@ -46,7 +47,7 @@ export class EntriesService {
             capsuleId,
             userId,
           );
-          this.assertWritable(capsule.status);
+          assertCapsuleAcceptsContent(capsule.status);
 
           const membership = capsule.members[0];
           if (!membership) {
@@ -153,7 +154,7 @@ export class EntriesService {
             capsuleId,
             userId,
           );
-          this.assertWritable(capsule.status);
+          assertCapsuleAcceptsContent(capsule.status);
           const entry = await this.findEntryForMutation(tx, capsuleId, entryId);
           this.assertAuthor(entry.capsuleMember.userId, userId);
 
@@ -190,7 +191,7 @@ export class EntriesService {
             capsuleId,
             userId,
           );
-          this.assertWritable(capsule.status);
+          assertCapsuleAcceptsContent(capsule.status);
           const entry = await this.findEntryForMutation(tx, capsuleId, entryId);
           this.assertAuthor(entry.capsuleMember.userId, userId);
 
@@ -259,14 +260,6 @@ export class EntriesService {
       throw new NotFoundException('Entry not found');
     }
     return entry;
-  }
-
-  private assertWritable(status: CapsuleStatus) {
-    if (status !== CapsuleStatus.DRAFT && status !== CapsuleStatus.COLLECTING) {
-      throw new BadRequestException(
-        'Entries cannot be changed in this capsule state',
-      );
-    }
   }
 
   private assertAuthor(authorId: string, userId: string) {

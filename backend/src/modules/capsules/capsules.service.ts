@@ -17,6 +17,9 @@ const capsuleMetadataSelect = {
   cover: true,
   type: true,
   opensAt: true,
+  closeAt: true,
+  closedAt: true,
+  openedAt: true,
   status: true,
   createdAt: true,
   updatedAt: true,
@@ -30,11 +33,16 @@ export class CapsulesService {
     userId: string,
     dto: CreateCapsuleDto,
   ) {
-    const openingDate = dto.openingDate ? new Date(dto.openingDate) : null;
-    this.validateOpeningDate(openingDate);
+    const openingDateValue = this.resolveOpeningDateValue(
+      dto.openAt,
+      dto.openingDate,
+    );
+    const openingDate = this.parseScheduleDate(openingDateValue, 'Opening');
+    const closingDate = this.parseScheduleDate(dto.closeAt, 'Closing');
+    this.validateSchedule(closingDate, openingDate);
 
     const status =
-      dto.type === CapsuleType.PERSONAL
+      dto.type === CapsuleType.PERSONAL && !openingDate && !closingDate
         ? CapsuleStatus.DRAFT
         : CapsuleStatus.COLLECTING;
 
@@ -47,6 +55,7 @@ export class CapsulesService {
           cover: dto.cover,
           type: dto.type,
           opensAt: openingDate,
+          closeAt: closingDate,
           status,
         },
         select: capsuleMetadataSelect,
@@ -126,7 +135,7 @@ export class CapsulesService {
 
     const capsule = await this.prisma.capsule.findFirst({
       where: { id: capsuleId, ownerId: userId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, closeAt: true },
     });
     if (!capsule) {
       throw new NotFoundException('Capsule not found');
@@ -140,8 +149,9 @@ export class CapsulesService {
 
     let openingDate: Date | undefined;
     if (dto.openingDate !== undefined) {
+      this.assertTimezone(dto.openingDate, 'Opening');
       openingDate = new Date(dto.openingDate);
-      this.validateOpeningDate(openingDate);
+      this.validateOpeningDate(openingDate, capsule.closeAt);
     }
 
     const data: Prisma.CapsuleUpdateManyMutationInput = {};
@@ -149,12 +159,19 @@ export class CapsulesService {
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.type !== undefined) {
       data.type = dto.type;
-      data.status =
-        dto.type === CapsuleType.PERSONAL
-          ? CapsuleStatus.DRAFT
-          : CapsuleStatus.COLLECTING;
+      if (
+        dto.type === CapsuleType.GROUP &&
+        capsule.status === CapsuleStatus.DRAFT
+      ) {
+        data.status = CapsuleStatus.COLLECTING;
+      }
     }
-    if (openingDate !== undefined) data.opensAt = openingDate;
+    if (openingDate !== undefined) {
+      data.opensAt = openingDate;
+      if (openingDate && capsule.status === CapsuleStatus.DRAFT) {
+        data.status = CapsuleStatus.COLLECTING;
+      }
+    }
     if (dto.cover !== undefined) data.cover = dto.cover;
 
     const result = await this.prisma.capsule.updateMany({
@@ -271,12 +288,59 @@ export class CapsulesService {
     return this.mapMetadata(capsule);
   }
 
-  private validateOpeningDate(openingDate: Date | null) {
-    if (openingDate !== null && (
-      Number.isNaN(openingDate.getTime()) ||
-      openingDate.getTime() <= Date.now()
-    )) {
-      throw new BadRequestException('Opening date must be in the future');
+  private resolveOpeningDateValue(
+    openAt?: string,
+    openingDate?: string,
+  ): string | undefined {
+    if (
+      openAt !== undefined &&
+      openingDate !== undefined &&
+      new Date(openAt).getTime() !== new Date(openingDate).getTime()
+    ) {
+      throw new BadRequestException(
+        'openAt and openingDate must have the same value',
+      );
+    }
+    return openAt ?? openingDate;
+  }
+
+  private parseScheduleDate(value: string | null | undefined, label: string) {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    this.assertTimezone(value, label);
+    const date = new Date(value);
+    this.validateFutureDate(date, label);
+    return date;
+  }
+
+  private assertTimezone(value: string, label: string) {
+    if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(value)) {
+      throw new BadRequestException(`${label} date must include a timezone`);
+    }
+  }
+
+  private validateSchedule(closeAt: Date | null, openAt: Date | null) {
+    if (closeAt && !openAt) {
+      throw new BadRequestException(
+        'An opening date is required when a closing date is configured',
+      );
+    }
+    if (closeAt && openAt && openAt.getTime() <= closeAt.getTime()) {
+      throw new BadRequestException('openAt must be later than closeAt');
+    }
+  }
+
+  private validateOpeningDate(openingDate: Date, closeAt: Date | null) {
+    this.validateFutureDate(openingDate, 'Opening');
+    if (closeAt && openingDate.getTime() <= closeAt.getTime()) {
+      throw new BadRequestException('Opening date must be later than closeAt');
+    }
+  }
+
+  private validateFutureDate(date: Date, label: string) {
+    if (Number.isNaN(date.getTime()) || date.getTime() <= Date.now()) {
+      throw new BadRequestException(`${label} date must be in the future`);
     }
   }
 
@@ -288,6 +352,9 @@ export class CapsulesService {
     cover: string | null;
     type: CapsuleType;
     opensAt: Date | null;
+    closeAt: Date | null;
+    closedAt: Date | null;
+    openedAt: Date | null;
     status: CapsuleStatus;
     createdAt: Date;
     updatedAt: Date;
@@ -299,7 +366,11 @@ export class CapsulesService {
       description: capsule.description,
       cover: capsule.cover,
       type: capsule.type,
+      openAt: capsule.opensAt,
       openingDate: capsule.opensAt,
+      closeAt: capsule.closeAt,
+      closedAt: capsule.closedAt,
+      openedAt: capsule.openedAt,
       status: capsule.status,
       createdAt: capsule.createdAt,
       updatedAt: capsule.updatedAt,
