@@ -119,6 +119,9 @@ describe('EntriesService', () => {
     });
     expect(prisma.capsuleEntry.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: {
+          capsuleMember: { is: { capsuleId, userId: authorId } },
+        },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
     );
@@ -130,16 +133,63 @@ describe('EntriesService', () => {
     expect(prisma.capsuleEntry.findMany).toHaveBeenCalledTimes(1);
   });
 
+  it('lists entries from all members after the capsule opens', async () => {
+    prisma.capsule.findFirst.mockResolvedValueOnce({
+      id: capsuleId,
+      status: 'OPEN',
+      members: [{ id: 'membership-id' }],
+    });
+    prisma.capsuleEntry.findMany.mockResolvedValue([entry]);
+    prisma.capsuleEntry.count.mockResolvedValue(1);
+
+    await service.findAll(capsuleId, otherId, { page: 1, limit: 20 });
+
+    expect(prisma.capsuleEntry.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { capsuleMember: { is: { capsuleId } } },
+      }),
+    );
+  });
+
   it('returns an entry only when it belongs to the requested capsule', async () => {
     prisma.capsuleEntry.findFirst.mockResolvedValue(entry);
     await expect(
       service.findOne(capsuleId, entryId, authorId),
     ).resolves.toHaveProperty('capsuleId', capsuleId);
+    expect(prisma.capsuleEntry.findFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: {
+          id: entryId,
+          capsuleMember: { is: { capsuleId, userId: authorId } },
+        },
+      }),
+    );
 
     prisma.capsuleEntry.findFirst.mockResolvedValue(null);
     await expect(
       service.findOne(capsuleId, entryId, authorId),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('allows members to read another member’s entry after the capsule opens', async () => {
+    prisma.capsule.findFirst.mockResolvedValueOnce({
+      id: capsuleId,
+      status: 'OPEN',
+      members: [{ id: 'membership-id' }],
+    });
+    prisma.capsuleEntry.findFirst.mockResolvedValue(entry);
+
+    await expect(
+      service.findOne(capsuleId, entryId, otherId),
+    ).resolves.toHaveProperty('author.id', authorId);
+    expect(prisma.capsuleEntry.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: entryId,
+          capsuleMember: { is: { capsuleId } },
+        },
+      }),
+    );
   });
 
   it('updates only the author entry while its capsule remains writable', async () => {

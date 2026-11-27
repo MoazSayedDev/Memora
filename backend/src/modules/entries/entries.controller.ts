@@ -77,7 +77,11 @@ export class EntriesController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List entries in a capsule chronologically' })
+  @ApiOperation({
+    summary: 'List visible capsule entries chronologically',
+    description:
+      'Members see only their own entries until the capsule opens; afterward, all entries are visible.',
+  })
   @ApiParam({ name: 'capsuleId', format: 'uuid' })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
@@ -117,7 +121,11 @@ export class EntriesController {
   }
 
   @Get(':entryId')
-  @ApiOperation({ summary: 'Get an entry by ID' })
+  @ApiOperation({
+    summary: 'Get a visible entry by ID',
+    description:
+      'Members can read another member’s entry only after the capsule opens.',
+  })
   @ApiParam({ name: 'capsuleId', format: 'uuid' })
   @ApiParam({ name: 'entryId', format: 'uuid' })
   @ApiResponse({

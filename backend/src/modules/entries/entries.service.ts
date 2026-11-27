@@ -72,12 +72,21 @@ export class EntriesService {
   }
 
   async findAll(capsuleId: string, userId: string, query: QueryEntriesDto) {
-    await this.findAccessibleCapsule(this.prisma, capsuleId, userId);
+    const capsule = await this.findAccessibleCapsule(
+      this.prisma,
+      capsuleId,
+      userId,
+    );
 
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const where: Prisma.CapsuleEntryWhereInput = {
-      capsuleMember: { is: { capsuleId } },
+      capsuleMember: {
+        is: {
+          capsuleId,
+          ...(capsule.status === CapsuleStatus.OPEN ? {} : { userId }),
+        },
+      },
     };
     const [entries, total] = await this.prisma.$transaction([
       this.prisma.capsuleEntry.findMany({
@@ -102,12 +111,21 @@ export class EntriesService {
   }
 
   async findOne(capsuleId: string, entryId: string, userId: string) {
-    await this.findAccessibleCapsule(this.prisma, capsuleId, userId);
+    const capsule = await this.findAccessibleCapsule(
+      this.prisma,
+      capsuleId,
+      userId,
+    );
 
     const entry = await this.prisma.capsuleEntry.findFirst({
       where: {
         id: entryId,
-        capsuleMember: { is: { capsuleId } },
+        capsuleMember: {
+          is: {
+            capsuleId,
+            ...(capsule.status === CapsuleStatus.OPEN ? {} : { userId }),
+          },
+        },
       },
       select: entrySelect,
     });
