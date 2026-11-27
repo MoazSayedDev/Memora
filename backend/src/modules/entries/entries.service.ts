@@ -2,10 +2,16 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CapsuleStatus, Prisma } from '@prisma/client';
+import {
+  ATTACHMENT_STORAGE,
+  type AttachmentStorage,
+} from '../attachments/attachment-storage.interface';
 import { assertCapsuleAcceptsContent } from '../capsules/capsule-lifecycle.policy';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateEntryDto } from './dto/create-entry.dto';
@@ -36,7 +42,13 @@ type PrismaReader = Pick<Prisma.TransactionClient, 'capsule'>;
 
 @Injectable()
 export class EntriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(EntriesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(ATTACHMENT_STORAGE)
+    private readonly attachmentStorage: AttachmentStorage,
+  ) {}
 
   async create(capsuleId: string, userId: string, dto: CreateEntryDto) {
     try {
@@ -183,8 +195,10 @@ export class EntriesService {
   }
 
   async remove(capsuleId: string, entryId: string, userId: string) {
+    const stagedFiles: Array<{ storageKey: string; stagingToken: string }> = [];
+    let result: { id: string; deleted: true };
     try {
-      return await this.prisma.$transaction(
+      result = await this.prisma.$transaction(
         async (tx) => {
           const capsule = await this.findAccessibleCapsule(
             tx,
@@ -194,6 +208,26 @@ export class EntriesService {
           assertCapsuleAcceptsContent(capsule.status);
           const entry = await this.findEntryForMutation(tx, capsuleId, entryId);
           this.assertAuthor(entry.capsuleMember.userId, userId);
+
+          const attachments = await tx.entryAttachment.findMany({
+            where: { entryId },
+            select: { fileUrl: true },
+          });
+          for (const attachment of attachments) {
+            const stagingToken = await this.attachmentStorage.stageDelete(
+              attachment.fileUrl,
+            );
+            if (stagingToken) {
+              stagedFiles.push({
+                storageKey: attachment.fileUrl,
+                stagingToken,
+              });
+            } else {
+              this.logger.warn(
+                `Attachment file is missing for entry ${entryId}: ${attachment.fileUrl}`,
+              );
+            }
+          }
 
           await tx.entryAttachment.deleteMany({ where: { entryId } });
           const result = await tx.capsuleEntry.deleteMany({
@@ -210,8 +244,36 @@ export class EntriesService {
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
     } catch (error) {
+      for (const stagedFile of [...stagedFiles].reverse()) {
+        try {
+          await this.attachmentStorage.restoreStagedFile(
+            stagedFile.storageKey,
+            stagedFile.stagingToken,
+          );
+        } catch (restoreError) {
+          this.logger.error(
+            `Failed to restore attachment for entry ${entryId}`,
+            restoreError instanceof Error ? restoreError.stack : undefined,
+          );
+        }
+      }
       this.throwForPrismaMutationError(error);
     }
+
+    for (const stagedFile of stagedFiles) {
+      try {
+        await this.attachmentStorage.finalizeStagedDelete(
+          stagedFile.stagingToken,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to finalize attachment deletion for entry ${entryId}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
+    }
+
+    return result;
   }
 
   private async findAccessibleCapsule(

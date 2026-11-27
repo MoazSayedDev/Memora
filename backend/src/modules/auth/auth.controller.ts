@@ -13,7 +13,7 @@ import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
@@ -30,6 +30,8 @@ export class AuthController {
 
   @Post('register')
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @ApiResponse({ status: 429, description: 'Too many requests' })
   @ApiOperation({ summary: 'Register and send an email verification link' })
   async register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
@@ -48,6 +50,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 3, ttl: 600000 } })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
   @ApiOperation({ summary: 'Resend the email verification link' })
   async resendVerification(@Body() dto: ResendVerificationDto) {
     return this.authService.resendVerificationEmail(dto);
@@ -58,6 +61,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 3, ttl: 600000 } })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
   @ApiOperation({ summary: 'Request a password reset email' })
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
@@ -66,6 +70,9 @@ export class AuthController {
   @Post('reset-password')
   @Public()
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
   @ApiOperation({ summary: 'Reset a password with a one-time token' })
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
@@ -74,6 +81,9 @@ export class AuthController {
   @Post('login')
   @Public()
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) response: Response,
@@ -91,6 +101,8 @@ export class AuthController {
   @Post('refresh')
   @Public()
   @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @ApiResponse({ status: 429, description: 'Too many requests' })
   async refresh(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,

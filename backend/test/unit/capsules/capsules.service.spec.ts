@@ -273,4 +273,27 @@ describe('CapsulesService', () => {
       BadRequestException,
     );
   });
+
+  it('refuses to delete capsules that contain entries or attachments', async () => {
+    prisma.$transaction.mockImplementation(
+      (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma),
+    );
+    prisma.capsule.findFirst.mockResolvedValue({
+      id: capsuleId,
+      status: 'COLLECTING',
+      members: [
+        {
+          id: 'membership-id',
+          entries: [{ id: 'entry-id', attachments: [{ id: 'attachment-id' }] }],
+        },
+      ],
+      invitations: [],
+    });
+
+    await expect(service.remove(userId, capsuleId)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(prisma.capsuleMember.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.capsule.delete).not.toHaveBeenCalled();
+  });
 });

@@ -3,8 +3,22 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { LocalAttachmentStorageService } from '../../../src/modules/attachments/local-attachment-storage.service';
 import { EntriesService } from '../../../src/modules/entries/entries.service';
 
+jest.mock('@nestjs/config', () => ({
+  ConfigService: class {
+    constructor(private readonly values: Record<string, unknown> = {}) {}
+
+    get(key: string) {
+      return this.values[key];
+    }
+  },
+}));
 jest.mock('@prisma/client', () => ({
   CapsuleStatus: {
     DRAFT: 'DRAFT',
@@ -27,6 +41,8 @@ describe('EntriesService', () => {
   const otherId = '550e8400-e29b-41d4-a716-446655440002';
   const entryId = '550e8400-e29b-41d4-a716-446655440003';
   const createdAt = new Date('2026-01-01T00:00:00.000Z');
+  let uploadsDirectory: string;
+  let storage: LocalAttachmentStorageService;
   const entry = {
     id: entryId,
     text: 'A message to remember',
@@ -41,7 +57,11 @@ describe('EntriesService', () => {
   let prisma: any;
   let service: EntriesService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    uploadsDirectory = await mkdtemp(join(tmpdir(), 'memora-entry-test-'));
+    storage = new LocalAttachmentStorageService(
+      new ConfigService({ UPLOADS_DIR: uploadsDirectory }),
+    );
     prisma = {
       capsule: { findFirst: jest.fn() },
       capsuleEntry: {
@@ -53,7 +73,10 @@ describe('EntriesService', () => {
         updateMany: jest.fn(),
         deleteMany: jest.fn(),
       },
-      entryAttachment: { deleteMany: jest.fn() },
+      entryAttachment: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
       $transaction: jest.fn((operation: unknown) =>
         Array.isArray(operation)
           ? Promise.all(operation)
@@ -65,7 +88,11 @@ describe('EntriesService', () => {
       status: 'COLLECTING',
       members: [{ id: 'membership-id' }],
     });
-    service = new EntriesService(prisma);
+    service = new EntriesService(prisma, storage);
+  });
+
+  afterEach(async () => {
+    await rm(uploadsDirectory, { recursive: true, force: true });
   });
 
   it('creates an entry attributed to the authenticated capsule member', async () => {
@@ -244,6 +271,53 @@ describe('EntriesService', () => {
       where: { entryId },
     });
     expect(prisma.capsuleEntry.deleteMany).toHaveBeenCalled();
+  });
+
+  it('removes attachment files after the entry transaction commits', async () => {
+    const fileUrl = 'entry-attachment.jpg';
+    const filePath = storage.getFilePath(fileUrl);
+    await writeFile(filePath, Buffer.from('attachment'));
+    prisma.capsuleEntry.findFirst.mockResolvedValue({
+      id: entryId,
+      capsuleMemberId: 'membership-id',
+      capsuleMember: { userId: authorId },
+    });
+    prisma.entryAttachment.findMany.mockResolvedValue([{ fileUrl }]);
+    prisma.capsuleEntry.deleteMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.remove(capsuleId, entryId, authorId)).resolves.toEqual(
+      { id: entryId, deleted: true },
+    );
+
+    await expect(readFile(filePath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readdir(join(uploadsDirectory, '.trash'))).resolves.toEqual(
+      [],
+    );
+  });
+
+  it('restores staged attachment files when the entry transaction fails', async () => {
+    const fileUrl = 'entry-attachment.jpg';
+    const filePath = storage.getFilePath(fileUrl);
+    const contents = Buffer.from('attachment');
+    await writeFile(filePath, contents);
+    prisma.capsuleEntry.findFirst.mockResolvedValue({
+      id: entryId,
+      capsuleMemberId: 'membership-id',
+      capsuleMember: { userId: authorId },
+    });
+    prisma.entryAttachment.findMany.mockResolvedValue([{ fileUrl }]);
+    prisma.capsuleEntry.deleteMany.mockRejectedValue(
+      new Error('database unavailable'),
+    );
+
+    await expect(
+      service.remove(capsuleId, entryId, authorId),
+    ).rejects.toThrow('database unavailable');
+
+    await expect(readFile(filePath)).resolves.toEqual(contents);
+    await expect(readdir(join(uploadsDirectory, '.trash'))).resolves.toEqual(
+      [],
+    );
   });
 
   it('does not delete another author’s entry', async () => {

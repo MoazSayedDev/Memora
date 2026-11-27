@@ -80,5 +80,6 @@ import { LocalAttachmentStorageService } from './local-attachment-storage.servic
       useExisting: LocalAttachmentStorageService,
     },
   ],
+  exports: [ATTACHMENT_STORAGE],
 })
 export class AttachmentsModule {}
