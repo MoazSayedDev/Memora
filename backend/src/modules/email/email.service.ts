@@ -9,6 +9,7 @@ import { emailVerificationTemplate } from './templates/email-verification.templa
 import { passwordResetTemplate } from './templates/password-reset.template';
 import { capsuleInvitationTemplate } from './templates/capsule-invitation.template';
 import { capsuleMemberJoinedTemplate } from './templates/capsule-member-joined.template';
+import { capsuleOpenedTemplate } from './templates/capsule-opened.template';
 
 @Injectable()
 export class EmailService {
@@ -86,6 +87,14 @@ export class EmailService {
       to,
       `A member joined ${capsuleTitle} on Memora`,
       capsuleMemberJoinedTemplate(capsuleTitle, memberName),
+    );
+  }
+
+  async sendCapsuleOpened(to: string, capsuleTitle: string): Promise<void> {
+    await this.sendHtml(
+      to,
+      `${capsuleTitle} is now open on Memora`,
+      capsuleOpenedTemplate(capsuleTitle),
     );
   }
 

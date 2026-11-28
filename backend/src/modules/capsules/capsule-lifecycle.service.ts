@@ -8,6 +8,7 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { CapsuleStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { UpdateCapsuleScheduleDto } from './dto/update-capsule-schedule.dto';
 import { CapsulesService } from './capsules.service';
 import { CapsuleLifecycleEvents } from './capsule-lifecycle-events';
@@ -20,6 +21,7 @@ export class CapsuleLifecycleService {
     private readonly prisma: PrismaService,
     private readonly capsulesService: CapsulesService,
     private readonly lifecycleEvents: CapsuleLifecycleEvents,
+    private readonly emailService: EmailService,
   ) {}
 
   async updateSchedule(
@@ -260,6 +262,7 @@ export class CapsuleLifecycleService {
           if (result.count === 1) {
             this.lifecycleEvents.capsuleOpened(capsule.id, now);
             this.logger.log(`Automatically opened capsule ${capsule.id}`);
+            await this.notifyCapsuleMembers(capsule.id);
           }
         } catch (error) {
           this.logger.error(
@@ -272,6 +275,42 @@ export class CapsuleLifecycleService {
       this.logger.error(
         'Failed to find capsules due for opening',
         error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
+  private async notifyCapsuleMembers(capsuleId: string) {
+    try {
+      const capsule = await this.prisma.capsule.findUnique({
+        where: { id: capsuleId },
+        select: {
+          name: true,
+          members: { select: { user: { select: { email: true } } } },
+        },
+      });
+      if (!capsule) {
+        throw new Error(`Opened capsule ${capsuleId} could not be found`);
+      }
+
+      const results = await Promise.allSettled(
+        capsule.members.map(({ user }) =>
+          this.emailService.sendCapsuleOpened(user.email, capsule.name),
+        ),
+      );
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          this.logger.error(
+            `Failed to send capsule-opened email for capsule ${capsuleId} to member ${index + 1}`,
+            result.reason instanceof Error
+              ? result.reason.stack
+              : String(result.reason),
+          );
+        }
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to notify members that capsule ${capsuleId} opened`,
+        error instanceof Error ? error.stack : String(error),
       );
     }
   }

@@ -2,6 +2,9 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 jest.mock('../../../src/prisma/prisma.service', () => ({
   PrismaService: class {},
 }));
+jest.mock('../../../src/modules/email/email.service', () => ({
+  EmailService: class {},
+}));
 import { CapsuleLifecycleService } from '../../../src/modules/capsules/capsule-lifecycle.service';
 
 describe('CapsuleLifecycleService', () => {
@@ -10,6 +13,7 @@ describe('CapsuleLifecycleService', () => {
   let prisma: any;
   let capsulesService: any;
   let events: any;
+  let emailService: any;
   let service: CapsuleLifecycleService;
 
   beforeEach(() => {
@@ -17,6 +21,7 @@ describe('CapsuleLifecycleService', () => {
       capsule: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
+        findUnique: jest.fn(),
         updateMany: jest.fn(),
       },
     };
@@ -27,7 +32,15 @@ describe('CapsuleLifecycleService', () => {
       capsuleClosed: jest.fn(),
       capsuleOpened: jest.fn(),
     };
-    service = new CapsuleLifecycleService(prisma, capsulesService, events);
+    emailService = {
+      sendCapsuleOpened: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new CapsuleLifecycleService(
+      prisma,
+      capsulesService,
+      events,
+      emailService,
+    );
   });
 
   it('rejects schedules where openAt is not later than closeAt', async () => {
@@ -111,6 +124,13 @@ describe('CapsuleLifecycleService', () => {
         { id: 'legacy-personal-capsule', status: 'DRAFT' },
       ]);
     prisma.capsule.updateMany.mockResolvedValue({ count: 1 });
+    prisma.capsule.findUnique.mockResolvedValue({
+      name: 'Memories',
+      members: [
+        { user: { email: 'member@example.com' } },
+        { user: { email: 'another-member@example.com' } },
+      ],
+    });
 
     await service.processDueCapsules();
 
@@ -120,6 +140,27 @@ describe('CapsuleLifecycleService', () => {
       expect.any(Date),
     );
     expect(events.capsuleOpened).toHaveBeenCalledTimes(3);
+    expect(emailService.sendCapsuleOpened).toHaveBeenCalledTimes(6);
+    expect(emailService.sendCapsuleOpened).toHaveBeenCalledWith(
+      'member@example.com',
+      'Memories',
+    );
+    expect(emailService.sendCapsuleOpened).toHaveBeenCalledWith(
+      'another-member@example.com',
+      'Memories',
+    );
+  });
+
+  it('does not email capsule members if another worker already opened the capsule', async () => {
+    prisma.capsule.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: capsuleId, status: 'CLOSED' }]);
+    prisma.capsule.updateMany.mockResolvedValue({ count: 0 });
+
+    await service.processDueCapsules();
+
+    expect(prisma.capsule.findUnique).not.toHaveBeenCalled();
+    expect(emailService.sendCapsuleOpened).not.toHaveBeenCalled();
   });
 
   it('does not transition cancelled capsules', async () => {
